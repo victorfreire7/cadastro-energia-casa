@@ -1,0 +1,11 @@
+[
+    {"nome": "AR-CONDICIONADO", "watts_mensal": 120},
+    {"nome": "ASPIRADOR DE PÓ", "watts_mensal": 10},
+    {"nome": "CAFETEIRA ELÉTRICA", "watts_mensal": 18},
+    {"nome": "CHUVEIRO ELÉTRICO", "watts_mensal": 70},
+    {"nome": "COMPUTADOR", "watts_mensal": 16.2},
+    {"nome": "FOGÃO ELÉTRICO", "watts_mensal": 1094.4},
+    {"nome": "MICROONDAS", "watts_mensal": 12},
+    {"nome": "GELADEIRA", "watts_mensal": 55},
+    {"nome": "TV", "watts_mensal": 16.5}
+]
