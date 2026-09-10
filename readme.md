@@ -6,4 +6,4 @@
 | Victor Hugo Ferreira Freire | 571099 |
 | Julian Moncoski| 572603 |
 
-📄 [Ver documentação de arquitetura](./ARQUITETURA.md)
+[Ver documentação de arquitetura](./ARQUITETURA.md)
