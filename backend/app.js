@@ -21,6 +21,11 @@ app.get('/health', async (req, res) => {
 app.use('/auth', authRoutes);
 app.use('/imoveis', imovelRoutes);
 
+app.use((err, req, res, next) => {
+  console.error(err);
+  res.status(500).json({ message: 'erro interno no servidor' });
+});
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Servidor rodando na porta ${PORT}`);
