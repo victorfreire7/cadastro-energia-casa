@@ -11,14 +11,14 @@ Sistema para cadastro de imóveis e eletrodomésticos, com cálculo e histórico
 | Camada | Tecnologia | Observação |
 | --- | --- | --- |
 | Backend | Node.js + Express | API REST própria |
-| ORM | Sequelize | Acesso ao Postgres via models/migrations |
+| ORM | Prisma | Acesso ao Postgres via schema.prisma + migrations |
 | Banco de dados | Supabase (Postgres) | Conexão direta via connection string, não via `supabase-js` |
 | Frontend | React (SPA) | Consome só a nossa API, não fala com o Supabase diretamente |
 
 **Fluxo de comunicação:**
 
 ```
-React (frontend) --HTTP/JSON--> Express (backend) --Sequelize--> Postgres (Supabase)
+React (frontend) --HTTP/JSON--> Express (backend) --Prisma--> Postgres (Supabase)
 ```
 
 ## 3. Estrutura de Pastas
@@ -27,12 +27,12 @@ React (frontend) --HTTP/JSON--> Express (backend) --Sequelize--> Postgres (Supab
 cadastro-energia-casa/
 ├── backend/
 │   ├── src/
-│   │   ├── models/        # Models Sequelize (Usuario, Imovel, Eletrodomestico, Consumo)
 │   │   ├── controllers/    # Lógica de cada rota
 │   │   ├── routes/         # Definição das rotas Express
 │   │   ├── middlewares/     # Autenticação, validação, tratamento de erro
-│   │   ├── config/          # Configuração do Sequelize/conexão
 │   │   └── app.js
+│   ├── prisma/
+│   │   └── schema.prisma   # Models e definição do banco (Usuario, Imovel, Eletrodomestico, Consumo)
 │   ├── .env                # Variáveis de ambiente (não versionado)
 │   └── package.json
 ├── frontend/
@@ -68,7 +68,7 @@ Baseado nos PBs do backlog.
 
 Relações: Usuario 1:N Imovel; Imovel 1:N Eletrodomestico; Imovel 1:N ConsumoHistorico.
 
-Ajustes futuros (campos/relações) serão feitos via migrations do Sequelize, sem precisar recriar o banco do zero.
+Ajustes futuros (campos/relações) serão feitos via migrations do Prisma (`prisma migrate dev`), sem precisar recriar o banco do zero.
 
 ## 6. Mapeamento Backlog → Módulos da API
 
@@ -89,6 +89,7 @@ Nenhum no momento. Todas as decisões abaixo foram fechadas:
 
 ## 8. Próximos Passos
 
-1. Criar migrations do Sequelize
-2. Estruturar rotas base do Express
-3. Scaffold inicial do React (Create React App / Vite — a decidir)
+1. Inicializar o Prisma e definir o `schema.prisma`
+2. Rodar a primeira migration
+3. Estruturar rotas base do Express
+4. Scaffold inicial do React (Create React App / Vite — a decidir)
