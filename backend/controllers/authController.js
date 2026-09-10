@@ -2,11 +2,21 @@ const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const prisma = require('../prisma/client');
 
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
 async function register(req, res) {
   const { nome, email, senha } = req.body;
 
   if (!nome || !email || !senha) {
     return res.status(400).json({ message: 'nome, email e senha são obrigatórios' });
+  }
+
+  if (!EMAIL_REGEX.test(email)) {
+    return res.status(400).json({ message: 'email inválido' });
+  }
+
+  if (senha.length < 8) {
+    return res.status(400).json({ message: 'senha deve ter no mínimo 8 caracteres' });
   }
 
   const existente = await prisma.usuario.findUnique({ where: { email } });
