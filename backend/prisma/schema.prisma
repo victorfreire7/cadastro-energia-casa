@@ -1,0 +1,46 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Usuario {
+  id     Int      @id @default(autoincrement())
+  nome   String
+  email  String   @unique
+  senha  String
+  imoveis Imovel[]
+}
+
+model Imovel {
+  id        Int      @id @default(autoincrement())
+  usuarioId Int
+  usuario   Usuario  @relation(fields: [usuarioId], references: [id])
+  endereco  String
+  tipo      String
+  status    String   @default("ativo")
+
+  eletrodomesticos  Eletrodomestico[]
+  consumoHistorico  ConsumoHistorico[]
+}
+
+model Eletrodomestico {
+  id          Int     @id @default(autoincrement())
+  imovelId    Int
+  imovel      Imovel  @relation(fields: [imovelId], references: [id])
+  nome        String
+  potenciaW   Float
+  quantidade  Int
+  horasDia    Float
+}
+
+model ConsumoHistorico {
+  id                Int     @id @default(autoincrement())
+  imovelId          Int
+  imovel            Imovel  @relation(fields: [imovelId], references: [id])
+  mesReferencia     String
+  consumoTotalKwh   Float
+}
