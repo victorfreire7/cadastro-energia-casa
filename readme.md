@@ -18,6 +18,12 @@ Sistema para cadastro de imóveis e eletrodomésticos, com cálculo e histórico
 
 O sistema permite que um usuário se cadastre, registre seus imóveis com os eletrodomésticos de cada um, e acompanhe o consumo estimado de energia (kWh/mês) por eletrodoméstico e por imóvel, além de manter um histórico mensal com comparativos.
 
+## Capturas de tela
+
+| Login | Lista de imóveis | Detalhe do imóvel |
+|---|---|---|
+| ![Tela de login](./docs/login.png) | ![Lista de imóveis](./docs/dashboard.png) | ![Detalhe do imóvel](./docs/detalhe-imovel.png) |
+
 ## Stack tecnológica
 
 - **Backend**: Node.js + Express
@@ -32,6 +38,7 @@ O sistema permite que um usuário se cadastre, registre seus imóveis com os ele
 cadastro-energia-casa/
 ├── backend/     # API REST (Express + Prisma)
 ├── frontend/    # Interface (React + Vite)
+├── docs/        # Capturas de tela
 ├── Backlog Projeto SERS.docx
 ├── ARQUITETURA.md
 └── README.md
