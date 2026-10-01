@@ -1,0 +1,209 @@
+{
+  "_type": "export",
+  "__export_format": 4,
+  "__export_date": "2026-09-10T12:00:00.000Z",
+  "__export_source": "insomnia.desktop.app:v8.0.0",
+  "resources": [
+    {
+      "_id": "wrk_sers",
+      "_type": "workspace",
+      "parentId": null,
+      "name": "SERS - Cadastro de Energia",
+      "description": "API de cadastro de imóveis e consumo de energia"
+    },
+    {
+      "_id": "env_base",
+      "_type": "environment",
+      "parentId": "wrk_sers",
+      "name": "Base Environment",
+      "data": {
+        "base_url": "http://localhost:3000",
+        "token": "",
+        "imovel_id": "1"
+      },
+      "dataPropertyOrder": {
+        "&": ["base_url", "token", "imovel_id"]
+      },
+      "color": null,
+      "isPrivate": false,
+      "metaSortKey": 1
+    },
+    {
+      "_id": "fld_auth",
+      "_type": "request_group",
+      "parentId": "wrk_sers",
+      "name": "Auth",
+      "metaSortKey": 2
+    },
+    {
+      "_id": "fld_imoveis",
+      "_type": "request_group",
+      "parentId": "wrk_sers",
+      "name": "Imóveis",
+      "metaSortKey": 3
+    },
+    {
+      "_id": "fld_consumo",
+      "_type": "request_group",
+      "parentId": "wrk_sers",
+      "name": "Consumo",
+      "metaSortKey": 4
+    },
+    {
+      "_id": "req_health",
+      "_type": "request",
+      "parentId": "wrk_sers",
+      "name": "Health Check",
+      "method": "GET",
+      "url": "{{ _.base_url }}/health",
+      "body": {},
+      "headers": [],
+      "authentication": {},
+      "metaSortKey": 1
+    },
+    {
+      "_id": "req_register",
+      "_type": "request",
+      "parentId": "fld_auth",
+      "name": "Register",
+      "method": "POST",
+      "url": "{{ _.base_url }}/auth/register",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"nome\": \"Victor Hugo\",\n  \"email\": \"victor@teste.com\",\n  \"senha\": \"12345678\"\n}"
+      },
+      "headers": [
+        { "name": "Content-Type", "value": "application/json" }
+      ],
+      "authentication": {},
+      "metaSortKey": 1
+    },
+    {
+      "_id": "req_login",
+      "_type": "request",
+      "parentId": "fld_auth",
+      "name": "Login",
+      "method": "POST",
+      "url": "{{ _.base_url }}/auth/login",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"email\": \"victor@teste.com\",\n  \"senha\": \"12345678\"\n}"
+      },
+      "headers": [
+        { "name": "Content-Type", "value": "application/json" }
+      ],
+      "authentication": {},
+      "metaSortKey": 2
+    },
+    {
+      "_id": "req_imovel_criar",
+      "_type": "request",
+      "parentId": "fld_imoveis",
+      "name": "Criar Imóvel",
+      "method": "POST",
+      "url": "{{ _.base_url }}/imoveis",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"endereco\": \"Rua das Flores, 123\",\n  \"tipo\": \"residencial\",\n  \"eletrodomesticos\": [\n    {\n      \"nome\": \"Geladeira\",\n      \"potenciaW\": 400,\n      \"quantidade\": 1,\n      \"horasDia\": 24\n    },\n    {\n      \"nome\": \"Chuveiro Elétrico\",\n      \"potenciaW\": 5500,\n      \"quantidade\": 1,\n      \"horasDia\": 0.5\n    }\n  ]\n}"
+      },
+      "headers": [
+        { "name": "Content-Type", "value": "application/json" },
+        { "name": "Authorization", "value": "Bearer {{ _.token }}" }
+      ],
+      "authentication": {},
+      "metaSortKey": 1
+    },
+    {
+      "_id": "req_imovel_listar",
+      "_type": "request",
+      "parentId": "fld_imoveis",
+      "name": "Listar Imóveis",
+      "method": "GET",
+      "url": "{{ _.base_url }}/imoveis",
+      "body": {},
+      "headers": [
+        { "name": "Authorization", "value": "Bearer {{ _.token }}" }
+      ],
+      "authentication": {},
+      "metaSortKey": 2
+    },
+    {
+      "_id": "req_imovel_atualizar",
+      "_type": "request",
+      "parentId": "fld_imoveis",
+      "name": "Atualizar Imóvel",
+      "method": "PUT",
+      "url": "{{ _.base_url }}/imoveis/{{ _.imovel_id }}",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"endereco\": \"Rua Nova, 456\",\n  \"tipo\": \"comercial\",\n  \"status\": \"inativo\"\n}"
+      },
+      "headers": [
+        { "name": "Content-Type", "value": "application/json" },
+        { "name": "Authorization", "value": "Bearer {{ _.token }}" }
+      ],
+      "authentication": {},
+      "metaSortKey": 3
+    },
+    {
+      "_id": "req_imovel_excluir",
+      "_type": "request",
+      "parentId": "fld_imoveis",
+      "name": "Excluir Imóvel",
+      "method": "DELETE",
+      "url": "{{ _.base_url }}/imoveis/{{ _.imovel_id }}",
+      "body": {},
+      "headers": [
+        { "name": "Authorization", "value": "Bearer {{ _.token }}" }
+      ],
+      "authentication": {},
+      "metaSortKey": 4
+    },
+    {
+      "_id": "req_consumo_calcular",
+      "_type": "request",
+      "parentId": "fld_consumo",
+      "name": "Ver Consumo (calcula, não salva)",
+      "method": "GET",
+      "url": "{{ _.base_url }}/imoveis/{{ _.imovel_id }}/consumo",
+      "body": {},
+      "headers": [
+        { "name": "Authorization", "value": "Bearer {{ _.token }}" }
+      ],
+      "authentication": {},
+      "metaSortKey": 1
+    },
+    {
+      "_id": "req_consumo_registrar",
+      "_type": "request",
+      "parentId": "fld_consumo",
+      "name": "Registrar Consumo (salva histórico)",
+      "method": "POST",
+      "url": "{{ _.base_url }}/imoveis/{{ _.imovel_id }}/consumo",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"mesReferencia\": \"2026-09\"\n}"
+      },
+      "headers": [
+        { "name": "Content-Type", "value": "application/json" },
+        { "name": "Authorization", "value": "Bearer {{ _.token }}" }
+      ],
+      "authentication": {},
+      "metaSortKey": 2
+    },
+    {
+      "_id": "req_consumo_historico",
+      "_type": "request",
+      "parentId": "fld_consumo",
+      "name": "Histórico de Consumo",
+      "method": "GET",
+      "url": "{{ _.base_url }}/imoveis/{{ _.imovel_id }}/historico",
+      "body": {},
+      "headers": [
+        { "name": "Authorization", "value": "Bearer {{ _.token }}" }
+      ],
+      "authentication": {},
+      "metaSortKey": 3
+    }
+  ]
+}
