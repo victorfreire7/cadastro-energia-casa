@@ -7,6 +7,7 @@ import Register from './pages/Register.jsx';
 import Dashboard from './pages/Dashboard.jsx';
 import ImovelForm from './pages/ImovelForm.jsx';
 import ImovelDetail from './pages/ImovelDetail.jsx';
+import Dimensionamento from './pages/Dimensionamento.jsx';
 
 export default function App() {
   return (
@@ -37,6 +38,14 @@ export default function App() {
             element={
               <PrivateRoute>
                 <ImovelDetail />
+              </PrivateRoute>
+            }
+          />
+          <Route
+            path="/dimensionamento/novo/:imovelId?"
+            element={
+              <PrivateRoute>
+                <Dimensionamento />
               </PrivateRoute>
             }
           />

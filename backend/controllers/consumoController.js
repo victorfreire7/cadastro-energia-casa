@@ -85,4 +85,4 @@ async function historico(req, res) {
   res.json(comComparativo);
 }
 
-module.exports = { calcular, registrar, historico };
+module.exports = { calcular, registrar, historico, calcularConsumoEletrodomestico };

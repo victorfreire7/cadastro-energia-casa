@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import api from '../services/api.js';
+import { UFS } from '../constants/ufs.js';
 
 export default function ImovelDetail() {
   const { id } = useParams();
@@ -10,7 +11,7 @@ export default function ImovelDetail() {
   const [historico, setHistorico] = useState([]);
   const [erro, setErro] = useState('');
   const [editando, setEditando] = useState(false);
-  const [formEdicao, setFormEdicao] = useState({ endereco: '', tipo: '', status: '' });
+  const [formEdicao, setFormEdicao] = useState({ endereco: '', tipo: '', status: '', cidade: '', uf: '' });
   const [salvando, setSalvando] = useState(false);
 
   useEffect(() => {
@@ -29,7 +30,9 @@ export default function ImovelDetail() {
       setFormEdicao({
         endereco: encontrado.endereco,
         tipo: encontrado.tipo,
-        status: encontrado.status
+        status: encontrado.status,
+        cidade: encontrado.cidade || '',
+        uf: encontrado.uf || ''
       });
       setConsumo(consumoResp.data);
       setHistorico(historicoResp.data);
@@ -106,6 +109,30 @@ export default function ImovelDetail() {
             </select>
           </div>
 
+          <div className="localidade-row">
+            <div className="field">
+              <label htmlFor="cidade">Cidade</label>
+              <input
+                id="cidade"
+                value={formEdicao.cidade}
+                onChange={(e) => setFormEdicao({ ...formEdicao, cidade: e.target.value })}
+              />
+            </div>
+            <div className="field">
+              <label htmlFor="uf">UF</label>
+              <select
+                id="uf"
+                value={formEdicao.uf}
+                onChange={(e) => setFormEdicao({ ...formEdicao, uf: e.target.value })}
+              >
+                <option value="">—</option>
+                {UFS.map((u) => (
+                  <option key={u} value={u}>{u}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
           <div className="field">
             <label htmlFor="status">Status</label>
             <select
@@ -144,7 +171,11 @@ export default function ImovelDetail() {
           </div>
           <p className="imovel-meta">
             {imovel.tipo} · {imovel.status}
+            {imovel.cidade && ` · ${imovel.cidade}/${imovel.uf}`}
           </p>
+          <Link className="btn-primary btn-inline" to={`/dimensionamento/novo/${imovel.id}`}>
+            ☀ Dimensionar sistema solar
+          </Link>
         </>
       )}
 

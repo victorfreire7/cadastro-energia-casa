@@ -43,6 +43,9 @@ export default function Dashboard() {
       <Link className="btn-primary btn-inline" to="/imoveis/novo">
         + Cadastrar imóvel
       </Link>
+      <Link className="btn-secondary btn-inline" to="/dimensionamento/novo">
+        ☀ Dimensionar sistema solar
+      </Link>
 
       {erro && <div className="error-message">{erro}</div>}
 

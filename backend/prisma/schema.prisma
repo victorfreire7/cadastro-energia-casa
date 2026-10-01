@@ -22,9 +22,12 @@ model Imovel {
   endereco  String
   tipo      String
   status    String   @default("ativo")
+  cidade    String?
+  uf        String?
 
   eletrodomesticos  Eletrodomestico[]
   consumoHistorico  ConsumoHistorico[]
+  cenarios          CenarioDimensionamento[]
 }
 
 model Eletrodomestico {
@@ -43,4 +46,17 @@ model ConsumoHistorico {
   imovel            Imovel  @relation(fields: [imovelId], references: [id])
   mesReferencia     String
   consumoTotalKwh   Float
+}
+
+model CenarioDimensionamento {
+  id                      Int      @id @default(autoincrement())
+  imovelId                Int
+  imovel                  Imovel   @relation(fields: [imovelId], references: [id])
+  cidade                  String
+  uf                      String
+  consumoReferenciaKwh    Float
+  consumoOrigem           String
+  percentualAtendimento   Float    @default(100)
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
 }

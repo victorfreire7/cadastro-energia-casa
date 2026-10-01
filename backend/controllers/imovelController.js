@@ -1,4 +1,5 @@
 const prisma = require('../prisma/client');
+const { vazio, validarLocalidade } = require('../services/dimensionamento');
 
 function validarEletrodomesticos(lista) {
   for (const e of lista) {
@@ -19,10 +20,19 @@ function validarEletrodomesticos(lista) {
 }
 
 async function criar(req, res) {
-  const { endereco, tipo, eletrodomesticos } = req.body;
+  const { endereco, tipo, eletrodomesticos, cidade, uf } = req.body;
 
   if (!endereco || !tipo) {
     return res.status(400).json({ message: 'endereco e tipo são obrigatórios' });
+  }
+
+  // Localidade é opcional no cadastro, mas se vier deve ser válida (usada no dimensionamento FV)
+  let localidade = {};
+  if (!vazio(cidade) || !vazio(uf)) {
+    localidade = validarLocalidade({ cidade, uf });
+    if (localidade.erro) {
+      return res.status(400).json({ message: localidade.erro });
+    }
   }
 
   const lista = eletrodomesticos || [];
@@ -35,6 +45,7 @@ async function criar(req, res) {
     data: {
       endereco,
       tipo,
+      ...(localidade.cidade && { cidade: localidade.cidade, uf: localidade.uf }),
       usuarioId: req.usuarioId,
       eletrodomesticos: {
         create: lista.map(e => ({
@@ -72,14 +83,26 @@ async function atualizar(req, res) {
     return res.status(404).json({ message: 'imóvel não encontrado' });
   }
 
-  const { endereco, tipo, status } = req.body;
+  const { endereco, tipo, status, cidade, uf } = req.body;
+
+  let localidade = {};
+  if (!vazio(cidade) || !vazio(uf)) {
+    localidade = validarLocalidade({
+      cidade: cidade ?? existente.cidade,
+      uf: uf ?? existente.uf
+    });
+    if (localidade.erro) {
+      return res.status(400).json({ message: localidade.erro });
+    }
+  }
 
   const imovel = await prisma.imovel.update({
     where: { id: Number(id) },
     data: {
       ...(endereco && { endereco }),
       ...(tipo && { tipo }),
-      ...(status && { status })
+      ...(status && { status }),
+      ...(localidade.cidade && { cidade: localidade.cidade, uf: localidade.uf })
     }
   });
 
@@ -94,8 +117,13 @@ async function excluir(req, res) {
     return res.status(404).json({ message: 'imóvel não encontrado' });
   }
 
-  await prisma.eletrodomestico.deleteMany({ where: { imovelId: Number(id) } });
-  await prisma.imovel.delete({ where: { id: Number(id) } });
+  // FKs são RESTRICT: remove os dependentes antes do imóvel
+  await prisma.$transaction([
+    prisma.cenarioDimensionamento.deleteMany({ where: { imovelId: Number(id) } }),
+    prisma.consumoHistorico.deleteMany({ where: { imovelId: Number(id) } }),
+    prisma.eletrodomestico.deleteMany({ where: { imovelId: Number(id) } }),
+    prisma.imovel.delete({ where: { id: Number(id) } })
+  ]);
 
   res.status(204).send();
 }

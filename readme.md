@@ -80,3 +80,21 @@ Mapeamento de cada item do Product Backlog (ver `Backlog Projeto SERS.docx` e `A
 | **PB07** | Análise e armazenamento de dados antigos (comparativos) | Backend: `consumoController.js` (`registrar`, `historico`), rotas `POST`/`GET /imoveis/:id/historico` (com cálculo de variação mês a mês). Frontend: tabela de histórico em `pages/ImovelDetail.jsx` |
 | **PB08** | Alerta e Validação de Inconsistências (dados negativos/inválidos/vazios) | Backend: validação de email e senha mínima em `authController.js`; validação de potência/quantidade/horas em `imovelController.js` (`validarEletrodomesticos`). Frontend: limites `min`/`max` nos campos de `pages/ImovelForm.jsx` |
 | **PB09** | Proteção dos Dados (privacidade de acesso) | Backend: hash de senha com `bcrypt`, autenticação via JWT em `middlewares/auth.js`, verificação de propriedade do recurso (`usuarioId`) em todas as rotas de imóvel/consumo |
+
+## Evolução Fotovoltaica → Implementação
+
+Segunda fase do backlog (`PBs_Sistema_Fotovoltaico_Tasks.pdf`, PB01–PB20). Os códigos abaixo são os do **novo** backlog fotovoltaico, não os PB01–PB09 da tabela anterior.
+
+| PB | Task | Onde foi atingido |
+|---|---|---|
+| **PB01** | 1. Reaproveitar consumo cadastrado | `services/dimensionamento.js` (`calcularSugestaoReferencia`: média do histórico → fallback estimativa dos eletrodomésticos); `GET /imoveis/:id/dimensionamento/referencia` |
+| | 2. Seleção do imóvel de referência | `frontend/src/pages/Dimensionamento.jsx` (select de imóveis, rota `/dimensionamento/novo/:imovelId?`) |
+| | 3. Exibir/ajustar localidade | Campos `cidade`/`uf` em `Imovel` (schema + migration); `ImovelForm.jsx`, `ImovelDetail.jsx` e `Dimensionamento.jsx` |
+| | 4. Ajuste manual do consumo (kWh/mês) | `validarConsumoManual` + campo "Ajustar consumo de referência" |
+| | 5. Histórico mínimo | `HISTORICO_MINIMO_MESES` (1) em `services/dimensionamento.js` |
+| | 6. Bloquear sem referência | `resolverConsumoReferencia` → `400 SEM_CONSUMO_REFERENCIA`; botão desabilitado no frontend |
+| **PB02** | 1–2. Campo de percentual, padrão 100% | `Dimensionamento.jsx`; `PERCENTUAL_PADRAO` |
+| | 3–4. Validar 1–100%, rejeitar negativos/não numéricos | `validarPercentual` (backend) + validação espelhada no frontend |
+| | 5. Persistir com o cenário | Model `CenarioDimensionamento`; `POST/GET/PUT /imoveis/:id/cenarios` |
+
+Testes unitários das regras: `cd backend && npm test`. Após puxar estas mudanças, rode `npx prisma migrate dev` para aplicar a migration `dimensionamento_cenario`.

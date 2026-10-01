@@ -1,12 +1,15 @@
 import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import api from '../services/api.js';
+import { UFS } from '../constants/ufs.js';
 
 const ELETRO_VAZIO = { nome: '', potenciaW: '', quantidade: '', horasDia: '' };
 
 export default function ImovelForm() {
   const [endereco, setEndereco] = useState('');
   const [tipo, setTipo] = useState('residencial');
+  const [cidade, setCidade] = useState('');
+  const [uf, setUf] = useState('');
   const [eletrodomesticos, setEletrodomesticos] = useState([{ ...ELETRO_VAZIO }]);
   const [erro, setErro] = useState('');
   const [carregando, setCarregando] = useState(false);
@@ -34,6 +37,8 @@ export default function ImovelForm() {
       const payload = {
         endereco,
         tipo,
+        ...(cidade && { cidade }),
+        ...(uf && { uf }),
         eletrodomesticos: eletrodomesticos
           .filter((el) => el.nome)
           .map((el) => ({
@@ -73,6 +78,22 @@ export default function ImovelForm() {
             <option value="residencial">Residencial</option>
             <option value="comercial">Comercial</option>
           </select>
+        </div>
+
+        <div className="localidade-row">
+          <div className="field">
+            <label htmlFor="cidade">Cidade</label>
+            <input id="cidade" value={cidade} onChange={(e) => setCidade(e.target.value)} />
+          </div>
+          <div className="field">
+            <label htmlFor="uf">UF</label>
+            <select id="uf" value={uf} onChange={(e) => setUf(e.target.value)}>
+              <option value="">—</option>
+              {UFS.map((u) => (
+                <option key={u} value={u}>{u}</option>
+              ))}
+            </select>
+          </div>
         </div>
 
         <h2 className="section-title">Eletrodomésticos</h2>
