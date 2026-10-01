@@ -16,10 +16,11 @@ router.get('/:id/consumo', asyncHandler(calcular));
 router.post('/:id/consumo', asyncHandler(registrar));
 router.get('/:id/historico', asyncHandler(historico));
 
-// Dimensionamento fotovoltaico (PB01/PB02)
+// Dimensionamento fotovoltaico (PB01–PB04)
 router.get('/:id/dimensionamento/referencia', asyncHandler(dimensionamento.referencia));
 router.post('/:id/cenarios', asyncHandler(dimensionamento.criar));
 router.get('/:id/cenarios/:cenarioId', asyncHandler(dimensionamento.obter));
 router.put('/:id/cenarios/:cenarioId', asyncHandler(dimensionamento.atualizar));
+router.get('/:id/cenarios/:cenarioId/logs', asyncHandler(dimensionamento.logs));
 
 module.exports = router;

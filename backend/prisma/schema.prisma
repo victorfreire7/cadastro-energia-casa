@@ -57,6 +57,23 @@ model CenarioDimensionamento {
   consumoReferenciaKwh    Float
   consumoOrigem           String
   percentualAtendimento   Float    @default(100)
+  hspKwhM2Dia             Float?
+  hspOrigem               String?
+  hspFonte                String?
+  energiaMensalFvKwh      Float?
+  logs                    CenarioCalculoLog[]
   createdAt               DateTime @default(now())
   updatedAt               DateTime @updatedAt
+}
+
+model CenarioCalculoLog {
+  id          Int                    @id @default(autoincrement())
+  cenarioId   Int
+  cenario     CenarioDimensionamento @relation(fields: [cenarioId], references: [id])
+  etapa       String
+  formula     String
+  entradas    Json
+  resultado   Float
+  unidade     String
+  createdAt   DateTime               @default(now())
 }

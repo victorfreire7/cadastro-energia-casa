@@ -104,3 +104,37 @@ test('resolver: valor manual inválido retorna erro (não cai na sugestão)', ()
   const sugestao = { consumoKwhMes: 350, origem: 'historico', mesesHistorico: 3 };
   assert.ok(resolverConsumoReferencia({ consumoManual: -1, sugestao }).erro);
 });
+
+// ---- PB04: E_FV = C_m × f ----
+const { calcularEnergiaFv, montarLogEnergiaFv } = require('../services/dimensionamento');
+
+test('E_FV: 350 kWh a 100% = 350; a 80% = 280', () => {
+  assert.strictEqual(calcularEnergiaFv(350, 100).valor, 350);
+  assert.strictEqual(calcularEnergiaFv(350, 80).valor, 280);
+});
+
+test('E_FV: arredonda a 2 casas', () => {
+  assert.strictEqual(calcularEnergiaFv(333.33, 33).valor, 110);
+  assert.strictEqual(calcularEnergiaFv(100.5, 33.3).valor, 33.47);
+});
+
+test('E_FV: valida C_m e f antes de calcular', () => {
+  for (const [c, f] of [[0, 100], [-1, 100], [NaN, 100], [100, 0], [100, 101], [100, NaN], [undefined, 50]]) {
+    assert.ok(calcularEnergiaFv(c, f).erro, `deveria rejeitar C_m=${c}, f=${f}`);
+  }
+});
+
+test('E_FV: recalcula ao alterar qualquer parâmetro', () => {
+  assert.strictEqual(calcularEnergiaFv(300, 50).valor, 150);
+  assert.strictEqual(calcularEnergiaFv(400, 50).valor, 200); // consumo mudou
+  assert.strictEqual(calcularEnergiaFv(400, 25).valor, 100); // percentual mudou
+});
+
+test('E_FV: log registra fórmula, entradas, resultado e unidade', () => {
+  const log = montarLogEnergiaFv(350, 80, 280);
+  assert.strictEqual(log.etapa, 'E_FV');
+  assert.strictEqual(log.formula, 'E_FV = C_m × f');
+  assert.deepStrictEqual(log.entradas, { C_m_kWh_mes: 350, f_percentual: 80, f_fracao: 0.8 });
+  assert.strictEqual(log.resultado, 280);
+  assert.strictEqual(log.unidade, 'kWh/mês');
+});

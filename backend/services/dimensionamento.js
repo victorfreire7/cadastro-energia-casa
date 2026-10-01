@@ -122,7 +122,31 @@ function resolverConsumoReferencia({ consumoManual, sugestao }) {
   return { consumoKwhMes: sugestao.consumoKwhMes, origem: sugestao.origem };
 }
 
+// PB04 — energia mensal a gerar: E_FV = C_m × f   (f = percentual / 100)
+function calcularEnergiaFv(consumoKwhMes, percentual) {
+  if (!Number.isFinite(consumoKwhMes) || consumoKwhMes <= 0) {
+    return { erro: 'consumo de referência (C_m) deve ser maior que zero' };
+  }
+  if (!Number.isFinite(percentual) || percentual < PERCENTUAL_MIN || percentual > PERCENTUAL_MAX) {
+    return { erro: `percentual (f) deve estar entre ${PERCENTUAL_MIN}% e ${PERCENTUAL_MAX}%` };
+  }
+  return { valor: arredondar(consumoKwhMes * (percentual / 100)) };
+}
+
+// PB04 — evidência do cálculo, gravada a cada (re)cálculo para documentação
+function montarLogEnergiaFv(consumoKwhMes, percentual, energiaKwhMes) {
+  return {
+    etapa: 'E_FV',
+    formula: 'E_FV = C_m × f',
+    entradas: { C_m_kWh_mes: consumoKwhMes, f_percentual: percentual, f_fracao: percentual / 100 },
+    resultado: energiaKwhMes,
+    unidade: 'kWh/mês'
+  };
+}
+
 module.exports = {
+  calcularEnergiaFv,
+  montarLogEnergiaFv,
   HISTORICO_MINIMO_MESES,
   JANELA_HISTORICO_MESES,
   CONSUMO_MAX_KWH_MES,

@@ -4,6 +4,7 @@ const cors = require('cors');
 const prisma = require('./prisma/client');
 const authRoutes = require('./routes/auth');
 const imovelRoutes = require('./routes/imovel');
+const dimensionamentoRoutes = require('./routes/dimensionamento');
 
 const app = express();
 app.use(cors());
@@ -20,6 +21,7 @@ app.get('/health', async (req, res) => {
 
 app.use('/auth', authRoutes);
 app.use('/imoveis', imovelRoutes);
+app.use('/dimensionamento', dimensionamentoRoutes);
 
 app.use((err, req, res, next) => {
   console.error(err);

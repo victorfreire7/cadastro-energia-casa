@@ -119,6 +119,7 @@ async function excluir(req, res) {
 
   // FKs são RESTRICT: remove os dependentes antes do imóvel
   await prisma.$transaction([
+    prisma.cenarioCalculoLog.deleteMany({ where: { cenario: { imovelId: Number(id) } } }),
     prisma.cenarioDimensionamento.deleteMany({ where: { imovelId: Number(id) } }),
     prisma.consumoHistorico.deleteMany({ where: { imovelId: Number(id) } }),
     prisma.eletrodomestico.deleteMany({ where: { imovelId: Number(id) } }),

@@ -8,8 +8,11 @@ const {
   validarPercentual,
   validarLocalidade,
   calcularSugestaoReferencia,
-  resolverConsumoReferencia
+  resolverConsumoReferencia,
+  calcularEnergiaFv,
+  montarLogEnergiaFv
 } = require('../services/dimensionamento');
+const { HSP_MIN, HSP_MAX, tabelaHsp, obterHspPorUf, resolverHsp } = require('../services/hsp');
 
 async function buscarImovelDoUsuario(id, usuarioId) {
   return prisma.imovel.findFirst({
@@ -34,6 +37,27 @@ async function obterSugestao(imovel) {
   return calcularSugestaoReferencia({ historico, consumoEstimadoKwh });
 }
 
+function hspPublico(registro) {
+  if (!registro) return null;
+  return { uf: registro.uf, regiao: registro.regiao, hsp: registro.hsp, fonte: registro.fonte };
+}
+
+// GET /dimensionamento/hsp?uf=SP (sem uf: devolve a tabela completa)
+async function consultarHsp(req, res) {
+  const { uf } = req.query;
+  const faixa = { min: HSP_MIN, max: HSP_MAX };
+
+  if (!uf) {
+    return res.json({ faixa, tabela: [...tabelaHsp().values()].map(hspPublico) });
+  }
+
+  const registro = obterHspPorUf(uf);
+  if (!registro) {
+    return res.status(404).json({ message: 'não há HSP cadastrado para esta UF' });
+  }
+  res.json({ ...hspPublico(registro), faixa });
+}
+
 // GET /imoveis/:id/dimensionamento/referencia
 async function referencia(req, res) {
   const imovel = await buscarImovelDoUsuario(req.params.id, req.usuarioId);
@@ -48,6 +72,8 @@ async function referencia(req, res) {
     endereco: imovel.endereco,
     localidade: { cidade: imovel.cidade, uf: imovel.uf },
     sugestao,
+    hsp: imovel.uf ? hspPublico(obterHspPorUf(imovel.uf)) : null,
+    faixaHsp: { min: HSP_MIN, max: HSP_MAX },
     historicoMinimoMeses: HISTORICO_MINIMO_MESES,
     percentualPadrao: PERCENTUAL_PADRAO,
     // PB01: sem consumo de referência definido, o fluxo fica bloqueado
@@ -84,6 +110,16 @@ async function criar(req, res) {
     return res.status(400).json({ message: percentual.erro });
   }
 
+  const hsp = resolverHsp({ uf: localidade.uf, hspManual: req.body.hspKwhM2Dia });
+  if (hsp.erro) {
+    return res.status(400).json({ message: hsp.erro });
+  }
+
+  const energia = calcularEnergiaFv(consumo.consumoKwhMes, percentual.valor);
+  if (energia.erro) {
+    return res.status(400).json({ message: energia.erro });
+  }
+
   const cenario = await prisma.cenarioDimensionamento.create({
     data: {
       imovelId: imovel.id,
@@ -91,7 +127,14 @@ async function criar(req, res) {
       uf: localidade.uf,
       consumoReferenciaKwh: consumo.consumoKwhMes,
       consumoOrigem: consumo.origem,
-      percentualAtendimento: percentual.valor
+      percentualAtendimento: percentual.valor,
+      hspKwhM2Dia: hsp.hsp,
+      hspOrigem: hsp.origem,
+      hspFonte: hsp.fonte,
+      energiaMensalFvKwh: energia.valor,
+      logs: {
+        create: [montarLogEnergiaFv(consumo.consumoKwhMes, percentual.valor, energia.valor)]
+      }
     }
   });
 
@@ -117,51 +160,95 @@ async function obter(req, res) {
   res.json(cenario);
 }
 
-// PUT /imoveis/:id/cenarios/:cenarioId — ajusta consumo, percentual e/ou localidade
+// PUT /imoveis/:id/cenarios/:cenarioId — ajusta parâmetros e recalcula HSP/E_FV
 async function atualizar(req, res) {
   const existente = await buscarCenarioDoUsuario(req.params.id, req.params.cenarioId, req.usuarioId);
   if (!existente) {
     return res.status(404).json({ message: 'cenário não encontrado' });
   }
 
-  const data = {};
-  const { consumoReferenciaKwh, percentualAtendimento, cidade, uf } = req.body;
+  const { consumoReferenciaKwh, percentualAtendimento, cidade, uf, hspKwhM2Dia, usarHspTabela } = req.body;
 
+  let consumoKwhMes = existente.consumoReferenciaKwh;
+  let consumoOrigem = existente.consumoOrigem;
   if (!vazio(consumoReferenciaKwh)) {
     const consumo = resolverConsumoReferencia({ consumoManual: consumoReferenciaKwh, sugestao: null });
     if (consumo.erro) {
       return res.status(400).json({ message: consumo.erro });
     }
-    data.consumoReferenciaKwh = consumo.consumoKwhMes;
-    data.consumoOrigem = consumo.origem;
+    consumoKwhMes = consumo.consumoKwhMes;
+    consumoOrigem = consumo.origem;
   }
 
+  let percentualFinal = existente.percentualAtendimento;
   if (percentualAtendimento !== undefined) {
     const percentual = validarPercentual(percentualAtendimento);
     if (percentual.erro) {
       return res.status(400).json({ message: percentual.erro });
     }
-    data.percentualAtendimento = percentual.valor;
+    percentualFinal = percentual.valor;
   }
 
+  let localidade = { cidade: existente.cidade, uf: existente.uf };
   if (cidade !== undefined || uf !== undefined) {
-    const localidade = validarLocalidade({
-      cidade: cidade ?? existente.cidade,
-      uf: uf ?? existente.uf
-    });
+    localidade = validarLocalidade({ cidade: cidade ?? existente.cidade, uf: uf ?? existente.uf });
     if (localidade.erro) {
       return res.status(400).json({ message: localidade.erro });
     }
-    data.cidade = localidade.cidade;
-    data.uf = localidade.uf;
+  }
+
+  // HSP: manual informado > volta p/ tabela (pedido explícito, UF mudou, ou ainda não tinha) > mantém
+  let hspDados = {
+    hsp: existente.hspKwhM2Dia,
+    origem: existente.hspOrigem,
+    fonte: existente.hspFonte
+  };
+  const ufMudou = localidade.uf !== existente.uf;
+  if (!vazio(hspKwhM2Dia)) {
+    const hsp = resolverHsp({ uf: localidade.uf, hspManual: hspKwhM2Dia });
+    if (hsp.erro) return res.status(400).json({ message: hsp.erro });
+    hspDados = hsp;
+  } else if (usarHspTabela === true || existente.hspKwhM2Dia === null || (ufMudou && existente.hspOrigem !== 'manual')) {
+    const hsp = resolverHsp({ uf: localidade.uf });
+    if (hsp.erro) return res.status(400).json({ message: hsp.erro });
+    hspDados = hsp;
+  }
+
+  const energia = calcularEnergiaFv(consumoKwhMes, percentualFinal);
+  if (energia.erro) {
+    return res.status(400).json({ message: energia.erro });
   }
 
   const cenario = await prisma.cenarioDimensionamento.update({
     where: { id: existente.id },
-    data
+    data: {
+      cidade: localidade.cidade,
+      uf: localidade.uf,
+      consumoReferenciaKwh: consumoKwhMes,
+      consumoOrigem,
+      percentualAtendimento: percentualFinal,
+      hspKwhM2Dia: hspDados.hsp,
+      hspOrigem: hspDados.origem,
+      hspFonte: hspDados.fonte,
+      energiaMensalFvKwh: energia.valor,
+      logs: { create: [montarLogEnergiaFv(consumoKwhMes, percentualFinal, energia.valor)] }
+    }
   });
 
   res.json(cenario);
 }
 
-module.exports = { referencia, criar, obter, atualizar };
+// GET /imoveis/:id/cenarios/:cenarioId/logs — evidências de cálculo
+async function logs(req, res) {
+  const cenario = await buscarCenarioDoUsuario(req.params.id, req.params.cenarioId, req.usuarioId);
+  if (!cenario) {
+    return res.status(404).json({ message: 'cenário não encontrado' });
+  }
+  const registros = await prisma.cenarioCalculoLog.findMany({
+    where: { cenarioId: cenario.id },
+    orderBy: { createdAt: 'desc' }
+  });
+  res.json(registros);
+}
+
+module.exports = { referencia, consultarHsp, criar, obter, atualizar, logs };

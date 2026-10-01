@@ -98,3 +98,16 @@ Segunda fase do backlog (`PBs_Sistema_Fotovoltaico_Tasks.pdf`, PB01–PB20). Os 
 | | 5. Persistir com o cenário | Model `CenarioDimensionamento`; `POST/GET/PUT /imoveis/:id/cenarios` |
 
 Testes unitários das regras: `cd backend && npm test`. Após puxar estas mudanças, rode `npx prisma migrate dev` para aplicar a migration `dimensionamento_cenario`.
+| **PB03** (fotovoltaico) | 1. Dataset de HSP | `backend/data/hsp_por_uf.csv` (27 UFs, com região e fonte), carregado e validado por `services/hsp.js` (`carregarTabelaHsp`) |
+| | 2. Associar HSP à localidade | `obterHspPorUf` / `resolverHsp`; `GET /dimensionamento/hsp?uf=`; HSP gravado no cenário (`hspKwhM2Dia`) |
+| | 3. Sobrescrita manual | Campo "Sobrescrever HSP" em `Dimensionamento.jsx`; `PUT` aceita `hspKwhM2Dia` e `usarHspTabela` |
+| | 4. Registrar e exibir fonte | Campos `hspOrigem` e `hspFonte` no cenário, exibidos na tela |
+| | 5. Faixa plausível | `HSP_MIN = 3` e `HSP_MAX = 6.5` em `services/hsp.js` (backend e frontend) |
+| **PB04** (fotovoltaico) | 1. Fórmula E_FV = C_m × f | `calcularEnergiaFv` em `services/dimensionamento.js` |
+| | 2. Validar C_m e f | Mesma função (C_m > 0; f entre 1% e 100%) |
+| | 3. Exibir em kWh/mês | Seção "Energia mensal a gerar" em `Dimensionamento.jsx` |
+| | 4. Recalcular ao alterar parâmetro | Ao vivo no frontend; `PUT /imoveis/:id/cenarios/:cenarioId` recalcula e persiste |
+| | 5. Log/evidência | Model `CenarioCalculoLog`; `GET /imoveis/:id/cenarios/:cenarioId/logs`; botão "Ver memória de cálculo" |
+
+Atenção: os valores de `hsp_por_uf.csv` são médias anuais aproximadas por UF e devem ser conferidos no CRESESB SunData antes de entrega formal.
+
