@@ -1,0 +1,4 @@
+id,fabricante,modelo,potencia_w,potencia_max_pv_w,tensao_max_v,mppt_min_v,mppt_max_v,num_mppt,preco_brl,data_consulta,fonte
+1,Growatt,MIN 3000TL-X,3000,4200,500,60,500,2,3834.09,2026-10-02,Ficha tecnica: Growatt MIN 2500-6000TL-X distribuida pela Aldo (download.aldo.com.br); preco: listagem do vendedor Adiassolar no Magazine Luiza em 02/10/2026 (preco cheio; Pix 3642.39)
+2,Growatt,MIN 5000TL-X,5000,7000,550,60,550,2,4990.00,2026-10-02,Ficha tecnica: Growatt MIN 3000-6000TL-X distribuida pela Aldo (download.aldo.com.br); preco: listagem do vendedor Dgtec no Magazine Luiza em 02/10/2026 (preco cheio; Pix 4740.50)
+3,Fronius,Primo 3.0-1,3000,4500,1000,200,800,2,9449.00,2026-10-02,Ficha tecnica: Fronius Primo 3.0-1 (fronius.com help-center; faixa MPP 200-800 V; faixa utilizavel 80-800 V; PV maximo 4.5 kWp); preco: listagem do vendedor Temazisolar no Magazine Luiza em 02/10/2026 (codigo 4210069)
