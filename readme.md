@@ -111,3 +111,12 @@ Testes unitários das regras: `cd backend && npm test`. Após puxar estas mudan�
 
 Atenção: os valores de `hsp_por_uf.csv` são médias anuais aproximadas por UF e devem ser conferidos no CRESESB SunData antes de entrega formal.
 
+### PB12–PB15 — autonomia e baterias
+
+- PB12 valida autonomia positiva de 1 a 72 horas quando o cenário usa armazenamento.
+- PB13 calcula `E_d = C_m / 30`, `E_autonomia = E_d × (A / 24)` e a capacidade nominal estimada com DoD padrão de 80% e eficiência de bateria padrão de 90%. Esses dois padrões são premissas ajustáveis do modelo do projeto; o DoD do equipamento selecionado vem do dataset.
+- PB14 usa `backend/data/baterias.csv`, com dados técnicos e preços consultados em 02/10/2026. Os links das fichas dos fabricantes e das listagens de preço acompanham cada registro.
+- PB15 aplica o DoD do modelo selecionado uma única vez: `N_bat = ceil((E_autonomia / η_bat) / (C_nominal × DoD))`. A API devolve capacidade instalada, custo estimado e memória de cálculo.
+- O catálogo é servido em `GET /dimensionamento/baterias`. Cenários com armazenamento exigem seleção para novos cadastros; cenários antigos sem bateria selecionada seguem consultáveis e podem ser completados ao atualizar.
+- Para aplicar os novos campos e regenerar o Prisma Client, execute `cd backend && npx prisma migrate dev`.
+

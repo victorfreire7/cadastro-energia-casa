@@ -73,6 +73,9 @@ export default function Dimensionamento() {
   const [comArmazenamento, setComArmazenamento] = useState(false);
   const [autonomia, setAutonomia] = useState('');
   const [erroAutonomia, setErroAutonomia] = useState('');
+  const [dadosBaterias, setDadosBaterias] = useState({ padroes: { dod: 0.8, eficiencia: 0.9 }, baterias: [] });
+  const [bateriasErro, setBateriasErro] = useState('');
+  const [bateriaId, setBateriaId] = useState('');
 
   // PB01 task 2 — lista de imóveis para seleção
   useEffect(() => {
@@ -81,6 +84,13 @@ export default function Dimensionamento() {
       .then(({ data }) => setImoveis(data))
       .catch(() => setErro('não foi possível carregar seus imóveis'))
       .finally(() => !imovelId && setCarregando(false));
+  }, []);
+
+  useEffect(() => {
+    api
+      .get('/dimensionamento/baterias')
+      .then(({ data }) => setDadosBaterias(data))
+      .catch(() => setBateriasErro('não foi possível carregar as baterias disponíveis'));
   }, []);
 
   // PB01 tasks 1 e 3 — consumo e localidade já cadastrados
@@ -134,6 +144,24 @@ export default function Dimensionamento() {
   // PB04 — recalcula a cada mudança de consumo ou percentual
   const percentualNumero = Number(percentual.trim().replace(',', '.'));
   const energiaFv = calcularEnergiaFvLocal(consumoEfetivo, percentualNumero);
+  const bateriaSelecionada = dadosBaterias.baterias.find((b) => b.id === Number(bateriaId));
+  const autonomiaNumero = Number(autonomia.trim().replace(',', '.'));
+  const autonomiaValida = Number.isFinite(autonomiaNumero) && autonomiaNumero >= 1 && autonomiaNumero <= 72;
+  const energiaAutonomia = Number.isFinite(consumoEfetivo) && consumoEfetivo > 0 && autonomiaValida
+    ? (consumoEfetivo / 30) * (autonomiaNumero / 24)
+    : null;
+  const capacidadeBateriaNecessaria = energiaAutonomia === null
+    ? null
+    : energiaAutonomia / (dadosBaterias.padroes.dod * dadosBaterias.padroes.eficiencia);
+  const energiaUtilNecessaria = energiaAutonomia === null
+    ? null
+    : energiaAutonomia / dadosBaterias.padroes.eficiencia;
+  const capacidadeUtilUnitaria = bateriaSelecionada
+    ? bateriaSelecionada.capacidadeKwh * bateriaSelecionada.dod
+    : null;
+  const quantidadeBaterias = capacidadeUtilUnitaria && energiaUtilNecessaria
+    ? Math.ceil(energiaUtilNecessaria / capacidadeUtilUnitaria)
+    : null;
 
   function handleAutonomia(valor) {
     setAutonomia(valor);
@@ -179,6 +207,10 @@ export default function Dimensionamento() {
         setErroAutonomia(erroAut);
         return;
       }
+      if (!bateriaId || !bateriaSelecionada) {
+        setErro('selecione uma bateria disponível');
+        return;
+      }
     }
 
     setSalvando(true);
@@ -190,7 +222,10 @@ export default function Dimensionamento() {
         ...(manualValido && { consumoReferenciaKwh: manualNumero }),
         ...(hspManualValido && { hspKwhM2Dia: hspEfetivo }),
         armazenamento: comArmazenamento,
-        ...(comArmazenamento && { autonomiaHoras: autonomia.trim().replace(',', '.') })
+        ...(comArmazenamento && {
+          autonomiaHoras: autonomia.trim().replace(',', '.'),
+          bateriaId: Number(bateriaId)
+        })
       });
       setCenario(data);
       setLogs(null);
@@ -362,20 +397,56 @@ export default function Dimensionamento() {
             </select>
           </div>
           {comArmazenamento ? (
-            <div className="field">
-              <label htmlFor="autonomia">Autonomia desejada (horas, entre 1 e 72)</label>
-              <input
-                id="autonomia"
-                type="number"
-                min="1"
-                max="72"
-                step="any"
-                value={autonomia}
-                onChange={(e) => handleAutonomia(e.target.value)}
-                aria-invalid={erroAutonomia ? 'true' : 'false'}
-              />
-              {erroAutonomia && <div className="field-error">{erroAutonomia}</div>}
-            </div>
+            <>
+              <div className="field">
+                <label htmlFor="autonomia">Autonomia desejada (horas, entre 1 e 72)</label>
+                <input
+                  id="autonomia"
+                  type="number"
+                  min="1"
+                  max="72"
+                  step="any"
+                  value={autonomia}
+                  onChange={(e) => handleAutonomia(e.target.value)}
+                  aria-invalid={erroAutonomia ? 'true' : 'false'}
+                />
+                {erroAutonomia && <div className="field-error">{erroAutonomia}</div>}
+              </div>
+              <div className="field">
+                <label htmlFor="bateria">Bateria</label>
+                <select id="bateria" value={bateriaId} onChange={(e) => setBateriaId(e.target.value)} required>
+                  <option value="">Selecione uma bateria</option>
+                  {dadosBaterias.baterias.map((b) => (
+                    <option key={b.id} value={b.id}>
+                      {b.fabricante} {b.modelo} — {b.capacidadeKwh} kWh, {b.tensaoV} V
+                    </option>
+                  ))}
+                </select>
+                {bateriasErro && <div className="field-error">{bateriasErro}</div>}
+                {bateriaSelecionada && (
+                  <p className="imovel-meta">
+                    DoD {bateriaSelecionada.dodPercentual}%; R$ {Number(bateriaSelecionada.precoBrl).toFixed(2).replace('.', ',')} por unidade.
+                    {' '}Fonte técnica e preço consultados em {bateriaSelecionada.dataConsulta}.
+                  </p>
+                )}
+              </div>
+              {capacidadeBateriaNecessaria !== null && (
+                <div className="imovel-meta">
+                  <p>
+                    PB13: E_d = {(consumoEfetivo / 30).toFixed(2)} kWh/dia; E_autonomia = {energiaAutonomia.toFixed(2)} kWh;
+                    {' '}C_bat estimada = {capacidadeBateriaNecessaria.toFixed(2)} kWh nominais
+                    {' '}(DoD padrão {dadosBaterias.padroes.dod * 100}% e eficiência {dadosBaterias.padroes.eficiencia * 100}%).
+                  </p>
+                  {bateriaSelecionada && quantidadeBaterias !== null && (
+                    <p>
+                      PB15: {quantidadeBaterias} × {bateriaSelecionada.modelo}; capacidade instalada =
+                      {' '}{(quantidadeBaterias * bateriaSelecionada.capacidadeKwh).toFixed(2)} kWh nominais
+                      {' '}({(quantidadeBaterias * capacidadeUtilUnitaria).toFixed(2)} kWh úteis).
+                    </p>
+                  )}
+                </div>
+              )}
+            </>
           ) : (
             <p className="imovel-meta">Sem baterias: o custo de baterias é considerado R$ 0,00.</p>
           )}
@@ -454,6 +525,30 @@ export default function Dimensionamento() {
                 <th>Custo de baterias</th>
                 <td className="metric">R$ {Number(cenario.custoBateriaBrl).toFixed(2).replace('.', ',')}</td>
               </tr>
+              {cenario.armazenamento && (
+                <>
+                  <tr>
+                    <th>Capacidade necessária estimada</th>
+                    <td className="metric">{cenario.capacidadeBateriaNecessariaKwh ?? '—'} kWh</td>
+                  </tr>
+                  <tr>
+                    <th>Bateria selecionada</th>
+                    <td>
+                      {dadosBaterias.baterias.find((b) => b.id === cenario.bateriaId)
+                        ? `${dadosBaterias.baterias.find((b) => b.id === cenario.bateriaId).fabricante} ${dadosBaterias.baterias.find((b) => b.id === cenario.bateriaId).modelo}`
+                        : 'Seleção pendente'}
+                    </td>
+                  </tr>
+                  <tr>
+                    <th>Quantidade</th>
+                    <td className="metric">{cenario.quantidadeBaterias ?? '—'}</td>
+                  </tr>
+                  <tr>
+                    <th>Capacidade instalada</th>
+                    <td className="metric">{cenario.capacidadeBateriaInstaladaKwh ?? '—'} kWh</td>
+                  </tr>
+                </>
+              )}
             </tbody>
           </table>
           <button className="btn-secondary btn-inline" onClick={carregarLogs}>
@@ -474,9 +569,7 @@ export default function Dimensionamento() {
                   <tr key={l.id}>
                     <td>{new Date(l.createdAt).toLocaleString('pt-BR')}</td>
                     <td>{l.formula}</td>
-                    <td>
-                      C_m = {l.entradas.C_m_kWh_mes} kWh/mês; f = {l.entradas.f_percentual}%
-                    </td>
+                    <td>{Object.entries(l.entradas).map(([chave, valor]) => `${chave} = ${valor}`).join('; ')}</td>
                     <td className="metric">
                       {l.resultado} {l.unidade}
                     </td>

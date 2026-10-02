@@ -13,7 +13,20 @@ const {
   montarLogEnergiaFv
 } = require('../services/dimensionamento');
 const { HSP_MIN, HSP_MAX, tabelaHsp, obterHspPorUf, resolverHsp } = require('../services/hsp');
-const { resolverArmazenamento, custoBateria } = require('../services/armazenamento');
+const {
+  resolverArmazenamento,
+  custoBateria,
+  DOD_PADRAO,
+  EFICIENCIA_BATERIA_PADRAO,
+  calcularCapacidadeBateria,
+  montarLogCapacidadeBateria
+} = require('../services/armazenamento');
+const {
+  bateriasDisponiveis,
+  selecionarBateria,
+  dimensionarBaterias,
+  montarLogSelecaoBateria
+} = require('../services/baterias');
 
 async function buscarImovelDoUsuario(id, usuarioId) {
   return prisma.imovel.findFirst({
@@ -41,6 +54,87 @@ async function obterSugestao(imovel) {
 function hspPublico(registro) {
   if (!registro) return null;
   return { uf: registro.uf, regiao: registro.regiao, hsp: registro.hsp, fonte: registro.fonte };
+}
+
+function bateriaPublica(bateria) {
+  return {
+    id: bateria.id,
+    fabricante: bateria.fabricante,
+    modelo: bateria.modelo,
+    tecnologia: bateria.tecnologia,
+    capacidadeKwh: bateria.capacidadeKwh,
+    dod: bateria.dod,
+    dodPercentual: bateria.dodPercentual,
+    tensaoV: bateria.tensaoV,
+    precoBrl: bateria.precoBrl,
+    dataConsulta: bateria.dataConsulta,
+    fonte: bateria.fonte
+  };
+}
+
+function consultarBaterias(req, res) {
+  res.json({
+    padroes: { dod: DOD_PADRAO, eficiencia: EFICIENCIA_BATERIA_PADRAO },
+    baterias: bateriasDisponiveis().map(bateriaPublica)
+  });
+}
+
+function resolverDimensionamentoBateria({ consumoKwhMes, armazenamento, autonomiaHoras, bateriaId, permitirSemSelecao = false }) {
+  if (!armazenamento) {
+    return {
+      dados: {
+        capacidadeBateriaNecessariaKwh: null,
+        bateriaId: null,
+        quantidadeBaterias: 0,
+        capacidadeBateriaInstaladaKwh: 0,
+        custoBateriaBrl: 0
+      },
+      logs: []
+    };
+  }
+
+  const capacidade = calcularCapacidadeBateria(
+    consumoKwhMes,
+    autonomiaHoras,
+    DOD_PADRAO,
+    EFICIENCIA_BATERIA_PADRAO
+  );
+  if (capacidade.erro) return capacidade;
+  const logCapacidade = montarLogCapacidadeBateria(consumoKwhMes, autonomiaHoras, capacidade);
+
+  if (vazio(bateriaId)) {
+    if (!permitirSemSelecao) return { erro: 'bateriaId é obrigatória quando há armazenamento' };
+    return {
+      dados: {
+        capacidadeBateriaNecessariaKwh: capacidade.capacidadeNecessariaKwh,
+        bateriaId: null,
+        quantidadeBaterias: null,
+        capacidadeBateriaInstaladaKwh: null,
+        custoBateriaBrl: 0
+      },
+      logs: [logCapacidade]
+    };
+  }
+
+  const selecionada = selecionarBateria(bateriaId);
+  if (selecionada.erro) return selecionada;
+  const energiaAutonomiaKwhExata = (consumoKwhMes / 30) * (autonomiaHoras / 24);
+  const dimensionamento = dimensionarBaterias({
+    bateria: selecionada.bateria,
+    energiaAutonomiaKwh: energiaAutonomiaKwhExata,
+    eficiencia: EFICIENCIA_BATERIA_PADRAO
+  });
+  if (dimensionamento.erro) return dimensionamento;
+  return {
+    dados: {
+      capacidadeBateriaNecessariaKwh: capacidade.capacidadeNecessariaKwh,
+      bateriaId: dimensionamento.bateria.id,
+      quantidadeBaterias: dimensionamento.quantidade,
+      capacidadeBateriaInstaladaKwh: dimensionamento.capacidadeInstaladaKwh,
+      custoBateriaBrl: custoBateria(true, dimensionamento.custoBrl)
+    },
+    logs: [logCapacidade, montarLogSelecaoBateria(dimensionamento, energiaAutonomiaKwhExata, EFICIENCIA_BATERIA_PADRAO)]
+  };
 }
 
 // GET /dimensionamento/hsp?uf=SP (sem uf: devolve a tabela completa)
@@ -124,6 +218,16 @@ async function criar(req, res) {
     return res.status(400).json({ message: armazenamento.erro });
   }
 
+  const dimensionamentoBateria = resolverDimensionamentoBateria({
+    consumoKwhMes: consumo.consumoKwhMes,
+    armazenamento: armazenamento.armazenamento,
+    autonomiaHoras: armazenamento.autonomiaHoras,
+    bateriaId: req.body.bateriaId
+  });
+  if (dimensionamentoBateria.erro) {
+    return res.status(400).json({ message: dimensionamentoBateria.erro });
+  }
+
   const energia = calcularEnergiaFv(consumo.consumoKwhMes, percentual.valor);
   if (energia.erro) {
     return res.status(400).json({ message: energia.erro });
@@ -142,10 +246,10 @@ async function criar(req, res) {
       hspFonte: hsp.fonte,
       armazenamento: armazenamento.armazenamento,
       autonomiaHoras: armazenamento.autonomiaHoras,
-      custoBateriaBrl: custoBateria(armazenamento.armazenamento),
+      ...dimensionamentoBateria.dados,
       energiaMensalFvKwh: energia.valor,
       logs: {
-        create: [montarLogEnergiaFv(consumo.consumoKwhMes, percentual.valor, energia.valor)]
+        create: [montarLogEnergiaFv(consumo.consumoKwhMes, percentual.valor, energia.valor), ...dimensionamentoBateria.logs]
       }
     }
   });
@@ -234,6 +338,18 @@ async function atualizar(req, res) {
     return res.status(400).json({ message: armazenamento.erro });
   }
 
+  const bateriaId = req.body.bateriaId ?? existente.bateriaId;
+  const dimensionamentoBateria = resolverDimensionamentoBateria({
+    consumoKwhMes,
+    armazenamento: armazenamento.armazenamento,
+    autonomiaHoras: armazenamento.autonomiaHoras,
+    bateriaId,
+    permitirSemSelecao: armazenamento.armazenamento && existente.bateriaId == null && req.body.bateriaId === undefined
+  });
+  if (dimensionamentoBateria.erro) {
+    return res.status(400).json({ message: dimensionamentoBateria.erro });
+  }
+
   const energia = calcularEnergiaFv(consumoKwhMes, percentualFinal);
   if (energia.erro) {
     return res.status(400).json({ message: energia.erro });
@@ -252,9 +368,9 @@ async function atualizar(req, res) {
       hspFonte: hspDados.fonte,
       armazenamento: armazenamento.armazenamento,
       autonomiaHoras: armazenamento.autonomiaHoras,
-      custoBateriaBrl: custoBateria(armazenamento.armazenamento, existente.custoBateriaBrl),
+      ...dimensionamentoBateria.dados,
       energiaMensalFvKwh: energia.valor,
-      logs: { create: [montarLogEnergiaFv(consumoKwhMes, percentualFinal, energia.valor)] }
+      logs: { create: [montarLogEnergiaFv(consumoKwhMes, percentualFinal, energia.valor), ...dimensionamentoBateria.logs] }
     }
   });
 
@@ -274,4 +390,4 @@ async function logs(req, res) {
   res.json(registros);
 }
 
-module.exports = { referencia, consultarHsp, criar, obter, atualizar, logs };
+module.exports = { referencia, consultarHsp, consultarBaterias, criar, obter, atualizar, logs };

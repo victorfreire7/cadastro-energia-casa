@@ -3,7 +3,11 @@ const assert = require('node:assert');
 const {
   validarAutonomia,
   resolverArmazenamento,
-  custoBateria
+  custoBateria,
+  DOD_PADRAO,
+  EFICIENCIA_BATERIA_PADRAO,
+  calcularCapacidadeBateria,
+  montarLogCapacidadeBateria
 } = require('../services/armazenamento');
 
 test('autonomia: aceita 1 a 72 h, inclusive texto com vírgula', () => {
@@ -44,4 +48,39 @@ test('custo de bateria: zero sem armazenamento, valor calculado com armazenament
   assert.strictEqual(custoBateria(false), 0);
   assert.strictEqual(custoBateria(true, 5000), 5000);
   assert.strictEqual(custoBateria(true), 0);
+});
+
+test('PB13: calcula consumo diário, energia de autonomia e capacidade nominal com padrões documentados', () => {
+  assert.strictEqual(DOD_PADRAO, 0.8);
+  assert.strictEqual(EFICIENCIA_BATERIA_PADRAO, 0.9);
+  const r = calcularCapacidadeBateria(300, 24);
+  assert.deepStrictEqual(r, {
+    energiaDiariaKwh: 10,
+    energiaAutonomiaKwh: 10,
+    capacidadeNecessariaKwh: 13.89,
+    dod: 0.8,
+    eficiencia: 0.9
+  });
+});
+
+test('PB13: valida entradas e rejeita DoD ou eficiência zero', () => {
+  for (const entrada of [[0, 24], [300, 0], [300, 24, 0], [300, 24, 0.8, 0], [300, 73]]) {
+    assert.ok(calcularCapacidadeBateria(...entrada).erro, `deveria rejeitar ${entrada}`);
+  }
+});
+
+test('PB13: log registra fórmula, parâmetros, resultado e unidade', () => {
+  const calculo = calcularCapacidadeBateria(300, 24);
+  const log = montarLogCapacidadeBateria(300, 24, calculo);
+  assert.strictEqual(log.etapa, 'CAPACIDADE_BATERIA');
+  assert.deepStrictEqual(log.entradas, {
+    C_m_kWh_mes: 300,
+    A_horas: 24,
+    E_d_kWh_dia: 10,
+    E_autonomia_kWh: 10,
+    DoD: 0.8,
+    eficiencia_bateria: 0.9
+  });
+  assert.strictEqual(log.resultado, 13.89);
+  assert.strictEqual(log.unidade, 'kWh');
 });
