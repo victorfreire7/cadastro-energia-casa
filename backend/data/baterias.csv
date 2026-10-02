@@ -1,0 +1,3 @@
+id,fabricante,modelo,tecnologia,capacidade_kwh,dod_pct,tensao_v,preco_brl,data_consulta,fonte
+1,Dyness,B4850,LiFePO4,2.4,90,48,8974.78,2026-10-02,https://dyness.com/Public/Uploads/uploadfile/files/20241128/DynessB4850datasheetBR.pdf | https://www.portaldasbaterias.com/produtos/bateria-dyness-b4850-1og8f/
+2,Pylontech,US5000,LiFePO4,4.8,95,48,5999.00,2026-10-02,https://pylontech.com.br/wp-content/uploads/2024/08/Pylontech-Residential-ESS-Product-Portfolio-PY240723PT-BR.pdf | https://solar-shops.com/produto/6a7a8e63960a61cd6272bfc1

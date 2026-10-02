@@ -93,6 +93,9 @@ test('PB11: sem armazenamento por padrão, com autonomia nula e custo de bateria
   assert.strictEqual(r.body.armazenamento, false);
   assert.strictEqual(r.body.autonomiaHoras, null);
   assert.strictEqual(r.body.custoBateriaBrl, 0);
+  assert.strictEqual(r.body.bateriaId, null);
+  assert.strictEqual(r.body.quantidadeBaterias, 0);
+  assert.strictEqual(r.body.capacidadeBateriaInstaladaKwh, 0);
 });
 
 test('PB12: com armazenamento exige autonomia positiva entre 1 e 72 h', async () => {
@@ -100,14 +103,15 @@ test('PB12: com armazenamento exige autonomia positiva entre 1 e 72 h', async ()
     const r = await chamar(ctrl.criar, { body: { armazenamento: true, autonomiaHoras } });
     assert.strictEqual(r.status, 400, `deveria rejeitar ${autonomiaHoras}`);
   }
-  const ok = await chamar(ctrl.criar, { body: { armazenamento: true, autonomiaHoras: '12' } });
+  const ok = await chamar(ctrl.criar, { body: { armazenamento: true, autonomiaHoras: '12', bateriaId: 1 } });
   assert.strictEqual(ok.status, 201);
   assert.strictEqual(ok.body.armazenamento, true);
   assert.strictEqual(ok.body.autonomiaHoras, 12);
+  assert.strictEqual(ok.body.bateriaId, 1);
 });
 
 test('PB11/PB12: desligar o armazenamento zera autonomia e custo; religar exige autonomia', async () => {
-  const criado = await chamar(ctrl.criar, { body: { armazenamento: true, autonomiaHoras: 24 } });
+  const criado = await chamar(ctrl.criar, { body: { armazenamento: true, autonomiaHoras: 24, bateriaId: 1 } });
   const params = { id: '1', cenarioId: String(criado.body.id) };
 
   let r = await chamar(ctrl.atualizar, { params, body: { armazenamento: false } });
@@ -118,9 +122,50 @@ test('PB11/PB12: desligar o armazenamento zera autonomia e custo; religar exige 
   r = await chamar(ctrl.atualizar, { params, body: { armazenamento: true } });
   assert.strictEqual(r.status, 400);
 
-  r = await chamar(ctrl.atualizar, { params, body: { armazenamento: true, autonomiaHoras: 8 } });
+  r = await chamar(ctrl.atualizar, { params, body: { armazenamento: true, autonomiaHoras: 8, bateriaId: 1 } });
   assert.strictEqual(r.body.armazenamento, true);
   assert.strictEqual(r.body.autonomiaHoras, 8);
+  assert.strictEqual(r.body.quantidadeBaterias, 2);
+});
+
+test('PB13/PB15: exige seleção em cenário novo, persiste dimensionamento e logs', async () => {
+  const semBateria = await chamar(ctrl.criar, { body: { armazenamento: true, autonomiaHoras: 24 } });
+  assert.strictEqual(semBateria.status, 400);
+  assert.match(semBateria.body.message, /bateriaId é obrigatória/);
+  const bateriaInexistente = await chamar(ctrl.criar, {
+    body: { armazenamento: true, autonomiaHoras: 24, bateriaId: 999 }
+  });
+  assert.strictEqual(bateriaInexistente.status, 400);
+  assert.match(bateriaInexistente.body.message, /não encontrada/);
+
+  const r = await chamar(ctrl.criar, { body: { armazenamento: true, autonomiaHoras: 24, bateriaId: 1 } });
+  assert.strictEqual(r.status, 201);
+  assert.strictEqual(r.body.capacidadeBateriaNecessariaKwh, 13.89);
+  assert.strictEqual(r.body.quantidadeBaterias, 6);
+  assert.strictEqual(r.body.capacidadeBateriaInstaladaKwh, 14.4);
+  assert.strictEqual(r.body.custoBateriaBrl, 53848.68);
+  assert.deepStrictEqual(r.body.logs.map((l) => l.etapa), ['E_FV', 'CAPACIDADE_BATERIA', 'SELECAO_BATERIA']);
+});
+
+test('PB15: API disponibiliza catálogo e padrões do cálculo', async () => {
+  const r = await chamar(ctrl.consultarBaterias);
+  assert.strictEqual(r.body.padroes.dod, 0.8);
+  assert.strictEqual(r.body.padroes.eficiencia, 0.9);
+  assert.deepStrictEqual(r.body.baterias.map((b) => b.modelo), ['B4850', 'US5000']);
+});
+
+test('compatibilidade retroativa: atualiza cenário antigo com armazenamento sem bateria selecionada', async () => {
+  const criado = await chamar(ctrl.criar);
+  Object.assign(criado.body, { armazenamento: true, autonomiaHoras: 24, bateriaId: null });
+  const r = await chamar(ctrl.atualizar, {
+    params: { id: '1', cenarioId: String(criado.body.id) },
+    body: { autonomiaHoras: 12 }
+  });
+  assert.strictEqual(r.status, 200);
+  assert.strictEqual(r.body.capacidadeBateriaNecessariaKwh, 6.94);
+  assert.strictEqual(r.body.bateriaId, null);
+  assert.strictEqual(r.body.quantidadeBaterias, null);
+  assert.strictEqual(r.body.custoBateriaBrl, 0);
 });
 
 test('privacidade: outro usuário não acessa o cenário', async () => {

@@ -64,6 +64,10 @@ model CenarioDimensionamento {
   armazenamento           Boolean  @default(false)
   autonomiaHoras          Float?
   custoBateriaBrl         Float    @default(0)
+  capacidadeBateriaNecessariaKwh Float?
+  bateriaId               Int?
+  quantidadeBaterias      Int?
+  capacidadeBateriaInstaladaKwh Float?
   logs                    CenarioCalculoLog[]
   createdAt               DateTime @default(now())
   updatedAt               DateTime @updatedAt
