@@ -41,6 +41,17 @@ function validarPercentualLocal(texto) {
   return '';
 }
 
+// PB12 — mesma faixa de autonomia do backend (horas)
+function validarAutonomiaLocal(texto) {
+  const valor = texto.trim().replace(',', '.');
+  if (valor === '') return 'informe a autonomia desejada em horas';
+  if (!/^-?\d+(\.\d+)?$/.test(valor)) return 'a autonomia deve ser um número';
+  const numero = Number(valor);
+  if (numero <= 0) return 'a autonomia deve ser um valor positivo';
+  if (numero < 1 || numero > 72) return 'a autonomia deve estar entre 1 e 72 horas';
+  return '';
+}
+
 export default function Dimensionamento() {
   const { imovelId } = useParams();
   const navigate = useNavigate();
@@ -59,6 +70,9 @@ export default function Dimensionamento() {
   const [hspTabela, setHspTabela] = useState(null);
   const [hspManual, setHspManual] = useState('');
   const [logs, setLogs] = useState(null);
+  const [comArmazenamento, setComArmazenamento] = useState(false);
+  const [autonomia, setAutonomia] = useState('');
+  const [erroAutonomia, setErroAutonomia] = useState('');
 
   // PB01 task 2 — lista de imóveis para seleção
   useEffect(() => {
@@ -121,6 +135,11 @@ export default function Dimensionamento() {
   const percentualNumero = Number(percentual.trim().replace(',', '.'));
   const energiaFv = calcularEnergiaFvLocal(consumoEfetivo, percentualNumero);
 
+  function handleAutonomia(valor) {
+    setAutonomia(valor);
+    setErroAutonomia(validarAutonomiaLocal(valor));
+  }
+
   function handlePercentual(valor) {
     setPercentual(valor);
     setErroPercentual(validarPercentualLocal(valor));
@@ -154,6 +173,14 @@ export default function Dimensionamento() {
       return;
     }
 
+    if (comArmazenamento) {
+      const erroAut = validarAutonomiaLocal(autonomia);
+      if (erroAut) {
+        setErroAutonomia(erroAut);
+        return;
+      }
+    }
+
     setSalvando(true);
     try {
       const { data } = await api.post(`/imoveis/${imovelId}/cenarios`, {
@@ -161,7 +188,9 @@ export default function Dimensionamento() {
         uf,
         percentualAtendimento: percentual.trim().replace(',', '.'),
         ...(manualValido && { consumoReferenciaKwh: manualNumero }),
-        ...(hspManualValido && { hspKwhM2Dia: hspEfetivo })
+        ...(hspManualValido && { hspKwhM2Dia: hspEfetivo }),
+        armazenamento: comArmazenamento,
+        ...(comArmazenamento && { autonomiaHoras: autonomia.trim().replace(',', '.') })
       });
       setCenario(data);
       setLogs(null);
@@ -317,6 +346,40 @@ export default function Dimensionamento() {
             )}
           </div>
 
+          <h2 className="section-title">Armazenamento por baterias</h2>
+          <div className="field">
+            <label htmlFor="armazenamento">Sistema de armazenamento</label>
+            <select
+              id="armazenamento"
+              value={comArmazenamento ? 'com' : 'sem'}
+              onChange={(e) => {
+                setComArmazenamento(e.target.value === 'com');
+                setErroAutonomia('');
+              }}
+            >
+              <option value="sem">Sem baterias</option>
+              <option value="com">Com baterias</option>
+            </select>
+          </div>
+          {comArmazenamento ? (
+            <div className="field">
+              <label htmlFor="autonomia">Autonomia desejada (horas, entre 1 e 72)</label>
+              <input
+                id="autonomia"
+                type="number"
+                min="1"
+                max="72"
+                step="any"
+                value={autonomia}
+                onChange={(e) => handleAutonomia(e.target.value)}
+                aria-invalid={erroAutonomia ? 'true' : 'false'}
+              />
+              {erroAutonomia && <div className="field-error">{erroAutonomia}</div>}
+            </div>
+          ) : (
+            <p className="imovel-meta">Sem baterias: o custo de baterias é considerado R$ 0,00.</p>
+          )}
+
           <h2 className="section-title">Energia mensal a gerar (E_FV)</h2>
           {energiaFv !== null ? (
             <>
@@ -334,7 +397,7 @@ export default function Dimensionamento() {
           <button
             className="btn-primary"
             type="submit"
-            disabled={salvando || semReferencia || semHsp || !!erroPercentual || !!erroHsp}
+            disabled={salvando || semReferencia || semHsp || !!erroPercentual || !!erroHsp || !!erroAutonomia}
           >
             {salvando ? 'Salvando...' : 'Salvar cenário e continuar'}
           </button>
@@ -378,6 +441,18 @@ export default function Dimensionamento() {
               <tr>
                 <th>Origem do HSP</th>
                 <td>{cenario.hspFonte}</td>
+              </tr>
+              <tr>
+                <th>Armazenamento</th>
+                <td>
+                  {cenario.armazenamento
+                    ? `Com baterias (autonomia de ${cenario.autonomiaHoras} h)`
+                    : 'Sem baterias'}
+                </td>
+              </tr>
+              <tr>
+                <th>Custo de baterias</th>
+                <td className="metric">R$ {Number(cenario.custoBateriaBrl).toFixed(2).replace('.', ',')}</td>
               </tr>
             </tbody>
           </table>

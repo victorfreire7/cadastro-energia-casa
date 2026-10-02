@@ -13,6 +13,7 @@ const {
   montarLogEnergiaFv
 } = require('../services/dimensionamento');
 const { HSP_MIN, HSP_MAX, tabelaHsp, obterHspPorUf, resolverHsp } = require('../services/hsp');
+const { resolverArmazenamento, custoBateria } = require('../services/armazenamento');
 
 async function buscarImovelDoUsuario(id, usuarioId) {
   return prisma.imovel.findFirst({
@@ -115,6 +116,14 @@ async function criar(req, res) {
     return res.status(400).json({ message: hsp.erro });
   }
 
+  const armazenamento = resolverArmazenamento({
+    armazenamento: req.body.armazenamento,
+    autonomiaHoras: req.body.autonomiaHoras
+  });
+  if (armazenamento.erro) {
+    return res.status(400).json({ message: armazenamento.erro });
+  }
+
   const energia = calcularEnergiaFv(consumo.consumoKwhMes, percentual.valor);
   if (energia.erro) {
     return res.status(400).json({ message: energia.erro });
@@ -131,6 +140,9 @@ async function criar(req, res) {
       hspKwhM2Dia: hsp.hsp,
       hspOrigem: hsp.origem,
       hspFonte: hsp.fonte,
+      armazenamento: armazenamento.armazenamento,
+      autonomiaHoras: armazenamento.autonomiaHoras,
+      custoBateriaBrl: custoBateria(armazenamento.armazenamento),
       energiaMensalFvKwh: energia.valor,
       logs: {
         create: [montarLogEnergiaFv(consumo.consumoKwhMes, percentual.valor, energia.valor)]
@@ -214,6 +226,14 @@ async function atualizar(req, res) {
     hspDados = hsp;
   }
 
+  const armazenamento = resolverArmazenamento({
+    armazenamento: req.body.armazenamento ?? existente.armazenamento,
+    autonomiaHoras: req.body.autonomiaHoras ?? existente.autonomiaHoras
+  });
+  if (armazenamento.erro) {
+    return res.status(400).json({ message: armazenamento.erro });
+  }
+
   const energia = calcularEnergiaFv(consumoKwhMes, percentualFinal);
   if (energia.erro) {
     return res.status(400).json({ message: energia.erro });
@@ -230,6 +250,9 @@ async function atualizar(req, res) {
       hspKwhM2Dia: hspDados.hsp,
       hspOrigem: hspDados.origem,
       hspFonte: hspDados.fonte,
+      armazenamento: armazenamento.armazenamento,
+      autonomiaHoras: armazenamento.autonomiaHoras,
+      custoBateriaBrl: custoBateria(armazenamento.armazenamento, existente.custoBateriaBrl),
       energiaMensalFvKwh: energia.valor,
       logs: { create: [montarLogEnergiaFv(consumoKwhMes, percentualFinal, energia.valor)] }
     }
