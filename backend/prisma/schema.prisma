@@ -61,6 +61,9 @@ model CenarioDimensionamento {
   hspOrigem               String?
   hspFonte                String?
   energiaMensalFvKwh      Float?
+  armazenamento           Boolean  @default(false)
+  autonomiaHoras          Float?
+  custoBateriaBrl         Float    @default(0)
   logs                    CenarioCalculoLog[]
   createdAt               DateTime @default(now())
   updatedAt               DateTime @updatedAt

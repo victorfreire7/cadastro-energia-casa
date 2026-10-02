@@ -87,6 +87,42 @@ test('consultarHsp: por UF, tabela completa e UF inexistente', async () => {
   assert.strictEqual((await chamar(ctrl.consultarHsp, { query: { uf: 'ZZ' } })).status, 404);
 });
 
+test('PB11: sem armazenamento por padrão, com autonomia nula e custo de bateria zero', async () => {
+  const r = await chamar(ctrl.criar);
+  assert.strictEqual(r.status, 201);
+  assert.strictEqual(r.body.armazenamento, false);
+  assert.strictEqual(r.body.autonomiaHoras, null);
+  assert.strictEqual(r.body.custoBateriaBrl, 0);
+});
+
+test('PB12: com armazenamento exige autonomia positiva entre 1 e 72 h', async () => {
+  for (const autonomiaHoras of [undefined, 0, -5, 73, 'abc']) {
+    const r = await chamar(ctrl.criar, { body: { armazenamento: true, autonomiaHoras } });
+    assert.strictEqual(r.status, 400, `deveria rejeitar ${autonomiaHoras}`);
+  }
+  const ok = await chamar(ctrl.criar, { body: { armazenamento: true, autonomiaHoras: '12' } });
+  assert.strictEqual(ok.status, 201);
+  assert.strictEqual(ok.body.armazenamento, true);
+  assert.strictEqual(ok.body.autonomiaHoras, 12);
+});
+
+test('PB11/PB12: desligar o armazenamento zera autonomia e custo; religar exige autonomia', async () => {
+  const criado = await chamar(ctrl.criar, { body: { armazenamento: true, autonomiaHoras: 24 } });
+  const params = { id: '1', cenarioId: String(criado.body.id) };
+
+  let r = await chamar(ctrl.atualizar, { params, body: { armazenamento: false } });
+  assert.strictEqual(r.body.armazenamento, false);
+  assert.strictEqual(r.body.autonomiaHoras, null);
+  assert.strictEqual(r.body.custoBateriaBrl, 0);
+
+  r = await chamar(ctrl.atualizar, { params, body: { armazenamento: true } });
+  assert.strictEqual(r.status, 400);
+
+  r = await chamar(ctrl.atualizar, { params, body: { armazenamento: true, autonomiaHoras: 8 } });
+  assert.strictEqual(r.body.armazenamento, true);
+  assert.strictEqual(r.body.autonomiaHoras, 8);
+});
+
 test('privacidade: outro usuário não acessa o cenário', async () => {
   const r = await chamar(ctrl.obter, { params: { id: '1', cenarioId: '1' }, usuarioId: 99 });
   assert.strictEqual(r.status, 404);
