@@ -1,5 +1,0 @@
-id,fabricante,modelo,potencia_wp,eficiencia_pct,preco_brl,fonte
-1,Canadian Solar,HiKu6 CS6W-550MS,550,21.3,590.00,"Datasheet Canadian Solar HiKu6 CS6W-530-555MS (potencia e eficiencia STC 21.3%); preco: estimativa de referencia mercado BR - validar com distribuidor"
-2,Jinko Solar,Tiger Pro JKM550M-72HL4-V,550,21.29,580.00,"Datasheet Jinko Tiger Pro 72HC 535-555W (potencia e eficiencia STC 21.29%); preco: estimativa de referencia mercado BR - validar com distribuidor"
-3,LONGi Solar,Hi-MO 5m LR5-72HPH-550M,550,21.3,600.00,"Datasheet LONGi Hi-MO 5m LR5-72HPH 535-560M (potencia e eficiencia STC 21.3%); preco: estimativa de referencia mercado BR - validar com distribuidor"
-4,Jinko Solar,Tiger Neo JKM575N-72HL4-BDV,575,22.26,690.00,"Datasheet Jinko Tiger Neo N-type 72HL4-BDV (potencia e eficiencia STC 22.26%); preco: estimativa de referencia mercado BR - validar com distribuidor"
