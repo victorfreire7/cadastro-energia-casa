@@ -120,3 +120,12 @@ Atenção: os valores de `hsp_por_uf.csv` são médias anuais aproximadas por UF
 - O catálogo é servido em `GET /dimensionamento/baterias`. Cenários com armazenamento exigem seleção para novos cadastros; cenários antigos sem bateria selecionada seguem consultáveis e podem ser completados ao atualizar.
 - Para aplicar os novos campos e regenerar o Prisma Client, execute `cd backend && npx prisma migrate dev`.
 
+### PB16–PB20 — compatibilidade, orçamento e cenários
+
+- `backend/data/inversores.csv` identifica inversores híbridos e as baterias explicitamente suportadas. A combinação de bateria com inversor incompatível retorna erro e alternativas cadastradas. O conjunto documentado inclui Deye SUN-5K-SG04LP1-EU com Dyness B4850; confirme sempre a matriz de compatibilidade do fabricante antes de fechar a proposta.
+- `backend/data/paineis.csv` contém três módulos com dados técnicos e preços de varejo consultados em 02/10/2026. As fontes técnicas e de preço ficam no próprio CSV.
+- O dimensionamento de potência usa `P_FV = E_FV / (HSP × D × η)`, com `D = 30` dias e eficiência global `η = 75%` por padrão; ambos são editáveis no cenário (`D` entre 1 e 31 dias). O número de módulos é arredondado para cima. A potência instalada é comparada com a potência calculada; este cálculo preliminar não valida arranjos elétricos em série/paralelo.
+- O orçamento de equipamentos soma módulos, inversor e baterias. Estrutura, cabeamento, proteções e instalação são campos manuais, com padrão R$ 0,00; a tela permite registrar a fonte/premissa. O total geral soma equipamentos e esses itens.
+- `GET /dimensionamento/paineis` e `GET /dimensionamento/inversores` expõem os catálogos autenticados. `GET /imoveis/:id/cenarios` lista somente os cenários do imóvel pertencente ao usuário autenticado; os valores e logs ficam persistidos.
+- A migration `20261002140000_integracao_orcamento` adiciona dimensionamento e orçamento ao cenário. Rode `cd backend && npx prisma migrate dev` para aplicar e regenerar o Prisma Client.
+

@@ -13,10 +13,13 @@ const COLUNAS = [
   'mppt_min_v',
   'mppt_max_v',
   'num_mppt',
+  'suporta_bateria',
+  'baterias_compativeis',
   'preco_brl',
   'data_consulta',
   'fonte'
 ];
+const COLUNAS_LEGADAS = ['id', 'fabricante', 'modelo', 'potencia_w', 'potencia_max_pv_w', 'tensao_max_v', 'mppt_min_v', 'mppt_max_v', 'num_mppt', 'preco_brl', 'data_consulta', 'fonte'];
 
 // PB10 — potência instalada (CC) mínima aceita, em fração da potência nominal CA do inversor
 const RAZAO_CC_CA_MIN = 0.8;
@@ -27,7 +30,7 @@ function positivo(texto) {
 }
 
 function lerLinha(linha) {
-  const [id, fabricante, modelo, potenciaW, potenciaMaxPvW, tensaoMaxV, mpptMinV, mpptMaxV, numMppt, precoBrl, dataConsulta, ...resto] =
+  const [id, fabricante, modelo, potenciaW, potenciaMaxPvW, tensaoMaxV, mpptMinV, mpptMaxV, numMppt, suportaBateria, bateriasCompativeis, precoBrl, dataConsulta, ...resto] =
     linha.split(',').map((c) => c.trim());
 
   const inversor = {
@@ -40,6 +43,8 @@ function lerLinha(linha) {
     mpptMinV: positivo(mpptMinV),
     mpptMaxV: positivo(mpptMaxV),
     numMppt: positivo(numMppt),
+    suportaBateria: suportaBateria === 'true',
+    bateriasCompativeis: bateriasCompativeis ? bateriasCompativeis.split('|') : [],
     precoBrl: positivo(precoBrl),
     dataConsulta,
     fonte: resto.join(',').trim()
@@ -56,6 +61,7 @@ function lerLinha(linha) {
   const valido =
     Number.isInteger(inversor.id) &&
     Number.isInteger(inversor.numMppt) &&
+    ['true', 'false'].includes(suportaBateria) &&
     numeros.every((n) => n !== null) &&
     inversor.fabricante &&
     inversor.modelo &&
@@ -71,14 +77,19 @@ function lerLinha(linha) {
 // PB09 — carrega e valida o dataset (nenhum inversor fica fixo no código)
 function carregarInversores(arquivo = ARQUIVO_PADRAO) {
   const linhas = fs.readFileSync(arquivo, 'utf-8').split(/\r?\n/).filter((l) => l.trim() !== '');
-  const cabecalho = linhas.shift().split(',').map((c) => c.trim());
+  const cabecalho = linhas.shift().replace(/^\uFEFF/, '').split(',').map((c) => c.trim());
 
-  if (COLUNAS.some((c, i) => cabecalho[i] !== c)) {
+  const legado = COLUNAS_LEGADAS.length === cabecalho.length && COLUNAS_LEGADAS.every((c, i) => cabecalho[i] === c);
+  if (!legado && (cabecalho.length !== COLUNAS.length || COLUNAS.some((c, i) => cabecalho[i] !== c))) {
     throw new Error(`dataset de inversores com cabeçalho inválido (esperado: ${COLUNAS.join(',')})`);
   }
 
   const inversores = [];
-  for (const linha of linhas) {
+  for (let linha of linhas) {
+    if (legado) {
+      const campos = linha.split(',');
+      linha = [...campos.slice(0, 9), 'false', '', ...campos.slice(9)].join(',');
+    }
     const inversor = lerLinha(linha);
     if (!inversor) {
       throw new Error(`dataset de inversores com linha inválida: "${linha}"`);
@@ -123,6 +134,9 @@ function avaliarCompatibilidade(inversor, { potenciaInstaladaKwp, tensaoStringVo
   }
   if (potenciaCcW > inversor.potenciaMaxPvW) {
     motivos.push(`potência instalada (${potenciaCcW} W) acima do máximo do inversor (${inversor.potenciaMaxPvW} W)`);
+  }
+  if (potenciaCcW > inversor.potenciaW * 1.5) {
+    motivos.push(`potência CC/CA (${(potenciaCcW / inversor.potenciaW).toFixed(2)}) acima do limite de 1,50 adotado para esta seleção`);
   }
   if (tensaoStringVocV > inversor.tensaoMaxV) {
     motivos.push(`tensão de circuito aberto da string (${tensaoStringVocV} V) acima do máximo do inversor (${inversor.tensaoMaxV} V)`);

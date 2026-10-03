@@ -27,6 +27,8 @@ const {
   dimensionarBaterias,
   montarLogSelecaoBateria
 } = require('../services/baterias');
+const { paineisDisponiveis, dimensionarSistema } = require('../services/paineis');
+const { inversoresDisponiveis } = require('../services/inversores');
 
 async function buscarImovelDoUsuario(id, usuarioId) {
   return prisma.imovel.findFirst({
@@ -77,6 +79,71 @@ function consultarBaterias(req, res) {
     padroes: { dod: DOD_PADRAO, eficiencia: EFICIENCIA_BATERIA_PADRAO },
     baterias: bateriasDisponiveis().map(bateriaPublica)
   });
+}
+
+function consultarPaineis(req, res) {
+  res.json({ diasReferencia: 30, eficienciaPadrao: 0.75, paineis: paineisDisponiveis() });
+}
+
+function consultarInversores(req, res) {
+  res.json({ inversores: inversoresDisponiveis() });
+}
+
+function resolverOrcamento(body, energiaMensalKwh, hsp, armazenamento, bateriaId, defaults = {}) {
+  const painelId = body.painelId ?? defaults.painelId;
+  const inversorId = body.inversorId ?? defaults.inversorId;
+  const eficienciaSistema = body.eficienciaSistema === undefined ? (defaults.eficienciaSistema ?? 0.75) : Number(body.eficienciaSistema);
+  const diasReferencia = body.diasReferencia === undefined ? (defaults.diasReferencia ?? 30) : Number(body.diasReferencia);
+  const custos = {};
+  for (const chave of ['custoEstruturaBrl', 'custoCabeamentoBrl', 'custoProtecoesBrl', 'custoInstalacaoBrl']) {
+    const valor = body[chave] === undefined ? (defaults[chave] ?? 0) : Number(body[chave]);
+    if (!Number.isFinite(valor) || valor < 0) return { erro: `${chave} deve ser um número igual ou maior que zero` };
+    custos[chave] = Number(valor.toFixed(2));
+  }
+  if (!Number.isFinite(eficienciaSistema) || eficienciaSistema <= 0 || eficienciaSistema > 1) return { erro: 'eficienciaSistema deve estar entre 0 e 1' };
+  if (!Number.isInteger(diasReferencia) || diasReferencia < 1 || diasReferencia > 31) return { erro: 'diasReferencia deve estar entre 1 e 31' };
+
+  let painel = null;
+  let inversor = null;
+  let custoPaineisBrl = 0;
+  let quantidadePaineis = null;
+  let potenciaSistemaKwp = null;
+  let potenciaInstaladaKwp = null;
+  let log = null;
+  const temDimensionamento = painelId !== undefined && painelId !== null && inversorId !== undefined && inversorId !== null;
+  if (temDimensionamento) {
+    const potencia = dimensionarSistema({ energiaMensalKwh, hsp, eficiencia: eficienciaSistema, diasReferencia, painelId });
+    if (potencia.erro) return potencia;
+    painel = potencia.painel;
+    inversor = inversoresDisponiveis().find((item) => item.id === Number(inversorId));
+    if (!inversor) return { erro: 'inversor não encontrado' };
+    const dcW = potencia.potenciaInstaladaKwp * 1000;
+    if (dcW > inversor.potenciaMaxPvW || dcW > inversor.potenciaW * 1.5) {
+      const alternativas = inversoresDisponiveis().filter((item) => dcW <= item.potenciaMaxPvW && dcW <= item.potenciaW * 1.5);
+      return { erro: `inversor incompatível com a potência calculada (${dcW.toFixed(0)} W CC)`, alternativas: alternativas.map(({ id, fabricante, modelo }) => ({ id, fabricante, modelo })) };
+    }
+    if (armazenamento) {
+      const bateria = bateriasDisponiveis().find((item) => item.id === Number(bateriaId));
+      const familia = bateria ? `${bateria.fabricante} ${bateria.modelo}` : '';
+      if (!inversor.suportaBateria || !inversor.bateriasCompativeis.some((nome) => familia.includes(nome))) {
+        const alternativas = inversoresDisponiveis().filter((item) => item.suportaBateria && item.bateriasCompativeis.some((nome) => familia.includes(nome)));
+        return { erro: `inversor selecionado não suporta a bateria ${familia || 'selecionada'}`, alternativas: alternativas.map(({ id, fabricante, modelo }) => ({ id, fabricante, modelo })) };
+      }
+    }
+    custoPaineisBrl = potencia.custoPaineisBrl;
+    quantidadePaineis = potencia.quantidade;
+    potenciaSistemaKwp = potencia.potenciaNecessariaKwp;
+    potenciaInstaladaKwp = potencia.potenciaInstaladaKwp;
+    log = potencia.log;
+  } else if (painelId !== undefined || inversorId !== undefined) {
+    return { erro: 'selecione painel e inversor para dimensionar o sistema' };
+  }
+
+  const custoInversorBrl = inversor ? inversor.precoBrl : 0;
+  const custoBateriaBrl = armazenamento ? Number(defaults.custoBateriaBrl || 0) : 0;
+  const custoEquipamentosBrl = Number((custoPaineisBrl + custoInversorBrl + custoBateriaBrl).toFixed(2));
+  const custoTotalBrl = Number((custoEquipamentosBrl + Object.values(custos).reduce((a, b) => a + b, 0)).toFixed(2));
+  return { dados: { painelId: painel?.id ?? null, quantidadePaineis, potenciaSistemaKwp, potenciaInstaladaKwp, eficienciaSistema, diasReferencia, inversorId: inversor?.id ?? null, custoPaineisBrl, custoInversorBrl, ...custos, fontesCustosComplementares: body.fontesCustosComplementares ?? defaults.fontesCustosComplementares ?? null, custoEquipamentosBrl, custoTotalBrl }, painel, inversor, log };
 }
 
 function resolverDimensionamentoBateria({ consumoKwhMes, armazenamento, autonomiaHoras, bateriaId, permitirSemSelecao = false }) {
@@ -232,6 +299,10 @@ async function criar(req, res) {
   if (energia.erro) {
     return res.status(400).json({ message: energia.erro });
   }
+  const orcamento = resolverOrcamento(req.body, energia.valor, hsp.hsp, armazenamento.armazenamento, req.body.bateriaId, {
+    custoBateriaBrl: dimensionamentoBateria.dados.custoBateriaBrl
+  });
+  if (orcamento.erro) return res.status(400).json({ message: orcamento.erro, alternativas: orcamento.alternativas || [] });
 
   const cenario = await prisma.cenarioDimensionamento.create({
     data: {
@@ -247,9 +318,11 @@ async function criar(req, res) {
       armazenamento: armazenamento.armazenamento,
       autonomiaHoras: armazenamento.autonomiaHoras,
       ...dimensionamentoBateria.dados,
+      ...orcamento.dados,
       energiaMensalFvKwh: energia.valor,
+      custoBateriaBrl: dimensionamentoBateria.dados.custoBateriaBrl,
       logs: {
-        create: [montarLogEnergiaFv(consumo.consumoKwhMes, percentual.valor, energia.valor), ...dimensionamentoBateria.logs]
+        create: [montarLogEnergiaFv(consumo.consumoKwhMes, percentual.valor, energia.valor), ...dimensionamentoBateria.logs, ...(orcamento.log ? [orcamento.log] : [])]
       }
     }
   });
@@ -354,6 +427,11 @@ async function atualizar(req, res) {
   if (energia.erro) {
     return res.status(400).json({ message: energia.erro });
   }
+  const orcamento = resolverOrcamento(req.body, energia.valor, hspDados.hsp, armazenamento.armazenamento, bateriaId, {
+    ...existente,
+    custoBateriaBrl: dimensionamentoBateria.dados.custoBateriaBrl
+  });
+  if (orcamento.erro) return res.status(400).json({ message: orcamento.erro, alternativas: orcamento.alternativas || [] });
 
   const cenario = await prisma.cenarioDimensionamento.update({
     where: { id: existente.id },
@@ -369,8 +447,10 @@ async function atualizar(req, res) {
       armazenamento: armazenamento.armazenamento,
       autonomiaHoras: armazenamento.autonomiaHoras,
       ...dimensionamentoBateria.dados,
+      ...orcamento.dados,
       energiaMensalFvKwh: energia.valor,
-      logs: { create: [montarLogEnergiaFv(consumoKwhMes, percentualFinal, energia.valor), ...dimensionamentoBateria.logs] }
+      custoBateriaBrl: dimensionamentoBateria.dados.custoBateriaBrl,
+      logs: { create: [montarLogEnergiaFv(consumoKwhMes, percentualFinal, energia.valor), ...dimensionamentoBateria.logs, ...(orcamento.log ? [orcamento.log] : [])] }
     }
   });
 
@@ -390,4 +470,11 @@ async function logs(req, res) {
   res.json(registros);
 }
 
-module.exports = { referencia, consultarHsp, consultarBaterias, criar, obter, atualizar, logs };
+async function listarCenarios(req, res) {
+  const imovel = await buscarImovelDoUsuario(req.params.id, req.usuarioId);
+  if (!imovel) return res.status(404).json({ message: 'imóvel não encontrado' });
+  const cenarios = await prisma.cenarioDimensionamento.findMany({ where: { imovelId: imovel.id }, orderBy: { createdAt: 'desc' } });
+  res.json(cenarios);
+}
+
+module.exports = { referencia, consultarHsp, consultarBaterias, consultarPaineis, consultarInversores, criar, listarCenarios, obter, atualizar, logs };

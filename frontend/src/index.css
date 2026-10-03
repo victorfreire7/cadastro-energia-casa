@@ -286,3 +286,11 @@ button {
   font-weight: 500;
   color: var(--color-ink-soft);
 }
+
+@media print {
+  body { background: #fff; }
+  .dashboard { max-width: none; padding: 0; }
+  .back-link, button, form, .field { display: none !important; }
+  .resultado-cenario { display: block !important; }
+  .table { page-break-inside: avoid; }
+}

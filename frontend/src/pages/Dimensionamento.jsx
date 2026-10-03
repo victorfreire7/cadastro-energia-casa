@@ -76,6 +76,16 @@ export default function Dimensionamento() {
   const [dadosBaterias, setDadosBaterias] = useState({ padroes: { dod: 0.8, eficiencia: 0.9 }, baterias: [] });
   const [bateriasErro, setBateriasErro] = useState('');
   const [bateriaId, setBateriaId] = useState('');
+  const [paineis, setPaineis] = useState([]);
+  const [inversores, setInversores] = useState([]);
+  const [painelId, setPainelId] = useState('');
+  const [inversorId, setInversorId] = useState('');
+  const [eficienciaSistema, setEficienciaSistema] = useState('0.75');
+  const [diasReferencia, setDiasReferencia] = useState('30');
+  const [custosExtras, setCustosExtras] = useState({ custoEstruturaBrl: '0', custoCabeamentoBrl: '0', custoProtecoesBrl: '0', custoInstalacaoBrl: '0', fontesCustosComplementares: '' });
+  const [alternativasInversor, setAlternativasInversor] = useState([]);
+  const [cenariosSalvos, setCenariosSalvos] = useState([]);
+  const [cenarioEditandoId, setCenarioEditandoId] = useState(null);
 
   // PB01 task 2 — lista de imóveis para seleção
   useEffect(() => {
@@ -84,6 +94,12 @@ export default function Dimensionamento() {
       .then(({ data }) => setImoveis(data))
       .catch(() => setErro('não foi possível carregar seus imóveis'))
       .finally(() => !imovelId && setCarregando(false));
+  }, []);
+
+  useEffect(() => {
+    Promise.all([api.get('/dimensionamento/paineis'), api.get('/dimensionamento/inversores')])
+      .then(([p, i]) => { setPaineis(p.data.paineis); setEficienciaSistema(String(p.data.eficienciaPadrao)); setInversores(i.data.inversores); })
+      .catch(() => setErro('não foi possível carregar os catálogos de módulos e inversores'));
   }, []);
 
   useEffect(() => {
@@ -103,6 +119,7 @@ export default function Dimensionamento() {
     setErro('');
     setCenario(null);
     setConsumoManual('');
+    api.get(`/imoveis/${imovelId}/cenarios`).then(({ data }) => setCenariosSalvos(data)).catch(() => setCenariosSalvos([]));
     api
       .get(`/imoveis/${imovelId}/dimensionamento/referencia`)
       .then(({ data }) => {
@@ -162,6 +179,20 @@ export default function Dimensionamento() {
   const quantidadeBaterias = capacidadeUtilUnitaria && energiaUtilNecessaria
     ? Math.ceil(energiaUtilNecessaria / capacidadeUtilUnitaria)
     : null;
+  const painelSelecionado = paineis.find((p) => p.id === Number(painelId));
+  const potenciaSistemaKwp = energiaFv && hspEfetivo && Number(eficienciaSistema) > 0
+    ? energiaFv / (hspEfetivo * Number(diasReferencia) * Number(eficienciaSistema)) : null;
+  const quantidadePaineis = painelSelecionado && potenciaSistemaKwp
+    ? Math.ceil(potenciaSistemaKwp * 1000 / painelSelecionado.potenciaWp) : null;
+  const potenciaInstaladaKwp = painelSelecionado && quantidadePaineis
+    ? quantidadePaineis * painelSelecionado.potenciaWp / 1000 : null;
+  const bateriaCompativel = (inversor) => !comArmazenamento || (bateriaSelecionada && inversor.suportaBateria && inversor.bateriasCompativeis.some((nome) => `${bateriaSelecionada.fabricante} ${bateriaSelecionada.modelo}`.includes(nome)));
+  const inversoresFiltrados = inversores.filter(bateriaCompativel);
+  const inversorSelecionado = inversores.find((i) => i.id === Number(inversorId));
+  const custoPaineisPreview = painelSelecionado && quantidadePaineis ? painelSelecionado.precoBrl * quantidadePaineis : 0;
+  const custoBateriasPreview = bateriaSelecionada && quantidadeBaterias ? bateriaSelecionada.precoBrl * quantidadeBaterias : 0;
+  const custoEquipamentosPreview = custoPaineisPreview + (inversorSelecionado?.precoBrl || 0) + custoBateriasPreview;
+  const custosExtrasPreview = ['custoEstruturaBrl', 'custoCabeamentoBrl', 'custoProtecoesBrl', 'custoInstalacaoBrl'].reduce((soma, chave) => soma + (Number(custosExtras[chave]) || 0), 0);
 
   function handleAutonomia(valor) {
     setAutonomia(valor);
@@ -185,6 +216,7 @@ export default function Dimensionamento() {
   async function handleSubmit(e) {
     e.preventDefault();
     setErro('');
+    setAlternativasInversor([]);
 
     const erroLocal = validarPercentualLocal(percentual);
     if (erroLocal) {
@@ -212,10 +244,27 @@ export default function Dimensionamento() {
         return;
       }
     }
+    if (!painelId || !inversorId) {
+      setErro('selecione um módulo e um inversor para calcular o sistema e o orçamento');
+      return;
+    }
+    if (!inversorSelecionado || !bateriaCompativel(inversorSelecionado)) {
+      setErro('o inversor selecionado não é compatível com a bateria. Escolha um inversor híbrido compatível.');
+      return;
+    }
+    if (!potenciaInstaladaKwp || potenciaInstaladaKwp * 1000 > inversorSelecionado.potenciaMaxPvW || potenciaInstaladaKwp * 1000 > inversorSelecionado.potenciaW * 1.5) {
+      setErro('o inversor não suporta a potência calculada. Selecione uma alternativa compatível.');
+      setAlternativasInversor(inversores.filter((i) => bateriaCompativel(i) && potenciaInstaladaKwp * 1000 <= i.potenciaMaxPvW && potenciaInstaladaKwp * 1000 <= i.potenciaW * 1.5));
+      return;
+    }
+    if (Number(eficienciaSistema) <= 0 || Number(eficienciaSistema) > 1 || !Number.isInteger(Number(diasReferencia)) || Number(diasReferencia) < 1 || Number(diasReferencia) > 31 || ['custoEstruturaBrl', 'custoCabeamentoBrl', 'custoProtecoesBrl', 'custoInstalacaoBrl'].some((k) => Number(custosExtras[k]) < 0 || !Number.isFinite(Number(custosExtras[k])))) {
+      setErro('verifique a eficiência (entre 0 e 100%), os dias de referência (1 a 31) e os custos complementares (não negativos)');
+      return;
+    }
 
     setSalvando(true);
     try {
-      const { data } = await api.post(`/imoveis/${imovelId}/cenarios`, {
+      const payload = {
         cidade,
         uf,
         percentualAtendimento: percentual.trim().replace(',', '.'),
@@ -225,12 +274,24 @@ export default function Dimensionamento() {
         ...(comArmazenamento && {
           autonomiaHoras: autonomia.trim().replace(',', '.'),
           bateriaId: Number(bateriaId)
-        })
-      });
+        }),
+        painelId: Number(painelId),
+        inversorId: Number(inversorId),
+        eficienciaSistema: Number(eficienciaSistema),
+        diasReferencia: Number(diasReferencia),
+        ...Object.fromEntries(Object.entries(custosExtras).filter(([key]) => key !== 'fontesCustosComplementares').map(([key, value]) => [key, Number(value)])),
+        fontesCustosComplementares: custosExtras.fontesCustosComplementares
+      };
+      const { data } = cenarioEditandoId
+        ? await api.put(`/imoveis/${imovelId}/cenarios/${cenarioEditandoId}`, payload)
+        : await api.post(`/imoveis/${imovelId}/cenarios`, payload);
       setCenario(data);
+      setCenarioEditandoId(null);
+      setCenariosSalvos((atual) => [data, ...atual.filter((c) => c.id !== data.id)]);
       setLogs(null);
     } catch (err) {
       setErro(err.response?.data?.message || 'não foi possível salvar o cenário');
+      setAlternativasInversor(err.response?.data?.alternativas || []);
     } finally {
       setSalvando(false);
     }
@@ -244,7 +305,13 @@ export default function Dimensionamento() {
       <h1>Dimensionamento fotovoltaico</h1>
       <p className="imovel-meta">Passo 1 — consumo de referência, localização, HSP e percentual de atendimento</p>
 
-      {erro && <div className="error-message">{erro}</div>}
+      {erro && <div className="error-message">
+        {erro}
+        {alternativasInversor.length > 0 && <div>
+          <p>Alternativas compatíveis do catálogo:</p>
+          {alternativasInversor.map((i) => <button key={i.id} type="button" className="btn-secondary btn-inline" onClick={() => { setInversorId(String(i.id)); setErro(''); setAlternativasInversor([]); }}>{i.fabricante} {i.modelo}</button>)}
+        </div>}
+      </div>}
 
       <div className="field">
         <label htmlFor="imovel">Imóvel de referência</label>
@@ -262,10 +329,21 @@ export default function Dimensionamento() {
         </select>
       </div>
 
+      {imovelId && cenariosSalvos.length > 0 && !cenario && (
+        <div className="field">
+          <label htmlFor="cenarioAnterior">Cenários salvos deste imóvel</label>
+          <select id="cenarioAnterior" value="" onChange={(e) => setCenario(cenariosSalvos.find((c) => c.id === Number(e.target.value)) || null)}>
+            <option value="">Abrir um cenário salvo</option>
+            {cenariosSalvos.map((c) => <option key={c.id} value={c.id}>{new Date(c.createdAt).toLocaleDateString('pt-BR')} — {c.consumoReferenciaKwh} kWh/mês, {c.armazenamento ? 'com baterias' : 'sem baterias'}</option>)}
+          </select>
+        </div>
+      )}
+
       {imovelId && carregando && <p>Carregando...</p>}
 
       {referencia && !carregando && !cenario && (
         <form onSubmit={handleSubmit}>
+          {cenarioEditandoId && <p className="imovel-meta">Editando o cenário salvo #{cenarioEditandoId}.</p>}
           <h2 className="section-title">Localização</h2>
           <div className="localidade-row">
             <div className="field">
@@ -465,16 +543,70 @@ export default function Dimensionamento() {
             </p>
           )}
 
+          <h2 className="section-title">Módulos e inversor</h2>
+          <div className="field">
+            <label htmlFor="painel">Módulo fotovoltaico</label>
+            <select id="painel" value={painelId} onChange={(e) => setPainelId(e.target.value)} required>
+              <option value="">Selecione um módulo</option>
+              {paineis.map((p) => <option key={p.id} value={p.id}>{p.fabricante} {p.modelo} — {p.potenciaWp} Wp · R$ {p.precoBrl.toFixed(2)}</option>)}
+            </select>
+          </div>
+          <div className="field">
+            <label htmlFor="eficiencia">Eficiência global do sistema (η), entre 1% e 100%</label>
+            <input id="eficiencia" type="number" min="0.01" max="1" step="0.01" value={eficienciaSistema} onChange={(e) => setEficienciaSistema(e.target.value)} />
+            <p className="imovel-meta">Eficiência padrão 75%, editável. D é configurável entre 1 e 31 dias (padrão 30). A estimativa não substitui o projeto elétrico de strings.</p>
+          </div>
+          <div className="field">
+            <label htmlFor="diasReferencia">Dias de referência no mês (D)</label>
+            <input id="diasReferencia" type="number" min="1" max="31" step="1" value={diasReferencia} onChange={(e) => setDiasReferencia(e.target.value)} />
+          </div>
+          {potenciaSistemaKwp !== null && painelSelecionado && (
+            <p className="imovel-meta">
+              PB05–08: potência calculada {potenciaSistemaKwp.toFixed(2)} kWp; {quantidadePaineis} módulos; potência instalada {potenciaInstaladaKwp.toFixed(2)} kWp
+              {potenciaInstaladaKwp >= potenciaSistemaKwp ? ' (cobre a potência calculada).' : ' (abaixo da potência calculada).'}
+            </p>
+          )}
+          <div className="field">
+            <label htmlFor="inversor">Inversor</label>
+            <select id="inversor" value={inversorId} onChange={(e) => setInversorId(e.target.value)} required>
+              <option value="">Selecione um inversor</option>
+              {inversoresFiltrados.map((i) => <option key={i.id} value={i.id}>{i.fabricante} {i.modelo} — {i.potenciaW / 1000} kW{i.suportaBateria ? ' · híbrido, compatível com bateria' : ' · sem suporte a bateria'}</option>)}
+            </select>
+            {comArmazenamento && bateriaId && inversoresFiltrados.length === 0 && <div className="error-message">Nenhum inversor do catálogo declara compatibilidade com essa bateria. Selecione Dyness B4850 para usar o inversor híbrido cadastrado.</div>}
+          </div>
+          {painelSelecionado && <p className="imovel-meta">Módulo: ficha técnica e preço de varejo consultados em {painelSelecionado.dataConsulta}. Fonte: {painelSelecionado.fonte}</p>}
+
+          <h2 className="section-title">Custos complementares</h2>
+          <p className="imovel-meta">Informe os valores da proposta/instalação. Os padrões são R$ 0,00 e representam itens ainda não orçados.</p>
+          {[
+            ['custoEstruturaBrl', 'Estrutura de fixação'],
+            ['custoCabeamentoBrl', 'Cabeamento'],
+            ['custoProtecoesBrl', 'Proteções elétricas'],
+            ['custoInstalacaoBrl', 'Instalação']
+          ].map(([key, label]) => <div className="field" key={key}>
+            <label htmlFor={key}>{label} (R$)</label>
+            <input id={key} type="number" min="0" step="0.01" value={custosExtras[key]} onChange={(e) => setCustosExtras({ ...custosExtras, [key]: e.target.value })} />
+          </div>)}
+          <div className="field">
+            <label htmlFor="fonteCustos">Fontes ou premissas dos custos (ex.: proposta do instalador, data, escopo)</label>
+            <input id="fonteCustos" value={custosExtras.fontesCustosComplementares} onChange={(e) => setCustosExtras({ ...custosExtras, fontesCustosComplementares: e.target.value })} />
+          </div>
+          <div className="imovel-meta">
+            <p>PB17 — Equipamentos: módulos R$ {custoPaineisPreview.toFixed(2)} + inversor R$ {(inversorSelecionado?.precoBrl || 0).toFixed(2)} + baterias R$ {custoBateriasPreview.toFixed(2)} = R$ {custoEquipamentosPreview.toFixed(2)}.</p>
+            <p>PB18 — Total estimado: equipamentos R$ {custoEquipamentosPreview.toFixed(2)} + complementares R$ {custosExtrasPreview.toFixed(2)} = R$ {(custoEquipamentosPreview + custosExtrasPreview).toFixed(2)}.</p>
+          </div>
+
           <button
             className="btn-primary"
             type="submit"
             disabled={salvando || semReferencia || semHsp || !!erroPercentual || !!erroHsp || !!erroAutonomia}
           >
-            {salvando ? 'Salvando...' : 'Salvar cenário e continuar'}
+            {salvando ? 'Salvando...' : cenarioEditandoId ? 'Salvar alterações' : 'Salvar cenário e continuar'}
           </button>
           {semReferencia && (
             <p className="imovel-meta">Defina um consumo de referência para avançar.</p>
           )}
+          {cenarioEditandoId && <button type="button" className="btn-secondary btn-inline" onClick={() => { setCenarioEditandoId(null); setCenario(cenariosSalvos.find((c) => c.id === cenarioEditandoId) || null); }}>Cancelar edição</button>}
         </form>
       )}
 
@@ -506,6 +638,18 @@ export default function Dimensionamento() {
                 <td className="metric">{cenario.energiaMensalFvKwh} kWh/mês</td>
               </tr>
               <tr>
+                <th>Potência calculada / instalada</th>
+                <td className="metric">{cenario.potenciaSistemaKwp ?? '—'} / {cenario.potenciaInstaladaKwp ?? '—'} kWp</td>
+              </tr>
+              <tr>
+                <th>Módulos instalados</th>
+                <td>{paineis.find((p) => p.id === cenario.painelId)?.modelo || '—'} · {cenario.quantidadePaineis ?? '—'} unidades</td>
+              </tr>
+              <tr>
+                <th>Inversor</th>
+                <td>{inversores.find((i) => i.id === cenario.inversorId)?.modelo || '—'}</td>
+              </tr>
+              <tr>
                 <th>HSP utilizado</th>
                 <td className="metric">{cenario.hspKwhM2Dia} h/dia</td>
               </tr>
@@ -525,6 +669,11 @@ export default function Dimensionamento() {
                 <th>Custo de baterias</th>
                 <td className="metric">R$ {Number(cenario.custoBateriaBrl).toFixed(2).replace('.', ',')}</td>
               </tr>
+              <tr><th>Equipamentos</th><td className="metric">R$ {Number(cenario.custoEquipamentosBrl).toFixed(2).replace('.', ',')}</td></tr>
+              <tr><th>Módulos / inversor</th><td className="metric">R$ {(Number(cenario.custoPaineisBrl) + Number(cenario.custoInversorBrl)).toFixed(2).replace('.', ',')}</td></tr>
+              <tr><th>Estrutura / cabeamento / proteções / instalação</th><td className="metric">R$ {(Number(cenario.custoEstruturaBrl) + Number(cenario.custoCabeamentoBrl) + Number(cenario.custoProtecoesBrl) + Number(cenario.custoInstalacaoBrl)).toFixed(2).replace('.', ',')}</td></tr>
+              {cenario.fontesCustosComplementares && <tr><th>Premissas dos custos complementares</th><td>{cenario.fontesCustosComplementares}</td></tr>}
+              <tr><th>Total estimado da proposta</th><td className="metric">R$ {Number(cenario.custoTotalBrl).toFixed(2).replace('.', ',')}</td></tr>
               {cenario.armazenamento && (
                 <>
                   <tr>
@@ -554,6 +703,7 @@ export default function Dimensionamento() {
           <button className="btn-secondary btn-inline" onClick={carregarLogs}>
             {logs ? 'Atualizar memória de cálculo' : 'Ver memória de cálculo'}
           </button>
+          <button className="btn-secondary btn-inline" onClick={() => window.print()}>Imprimir / salvar proposta em PDF</button>
           {logs && (
             <table className="table">
               <thead>
@@ -578,8 +728,24 @@ export default function Dimensionamento() {
               </tbody>
             </table>
           )}
-          <button className="btn-secondary btn-inline" onClick={() => setCenario(null)}>
-            Editar parâmetros
+          <button className="btn-secondary btn-inline" onClick={() => {
+            setConsumoManual(String(cenario.consumoReferenciaKwh));
+            setPercentual(String(cenario.percentualAtendimento));
+            setCidade(cenario.cidade);
+            setUf(cenario.uf);
+            setHspManual(cenario.hspOrigem === 'manual' ? String(cenario.hspKwhM2Dia || '') : '');
+            setComArmazenamento(cenario.armazenamento);
+            setAutonomia(cenario.autonomiaHoras ? String(cenario.autonomiaHoras) : '');
+            setBateriaId(cenario.bateriaId ? String(cenario.bateriaId) : '');
+            setPainelId(cenario.painelId ? String(cenario.painelId) : '');
+            setInversorId(cenario.inversorId ? String(cenario.inversorId) : '');
+            setEficienciaSistema(String(cenario.eficienciaSistema || 0.75));
+            setDiasReferencia(String(cenario.diasReferencia || 30));
+            setCustosExtras({ custoEstruturaBrl: String(cenario.custoEstruturaBrl), custoCabeamentoBrl: String(cenario.custoCabeamentoBrl), custoProtecoesBrl: String(cenario.custoProtecoesBrl), custoInstalacaoBrl: String(cenario.custoInstalacaoBrl), fontesCustosComplementares: cenario.fontesCustosComplementares || '' });
+            setCenarioEditandoId(cenario.id);
+            setCenario(null);
+          }}>
+            Editar cenário
           </button>
         </div>
       )}
