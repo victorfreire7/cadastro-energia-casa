@@ -13,12 +13,15 @@ const COLUNAS = [
   'mppt_min_v',
   'mppt_max_v',
   'num_mppt',
+  'corrente_max_entrada_a',
+  'eficiencia_max_percentual',
   'suporta_bateria',
   'baterias_compativeis',
   'preco_brl',
   'data_consulta',
   'fonte'
 ];
+const COLUNAS_ANTIGAS = ['id', 'fabricante', 'modelo', 'potencia_w', 'potencia_max_pv_w', 'tensao_max_v', 'mppt_min_v', 'mppt_max_v', 'num_mppt', 'suporta_bateria', 'baterias_compativeis', 'preco_brl', 'data_consulta', 'fonte'];
 const COLUNAS_LEGADAS = ['id', 'fabricante', 'modelo', 'potencia_w', 'potencia_max_pv_w', 'tensao_max_v', 'mppt_min_v', 'mppt_max_v', 'num_mppt', 'preco_brl', 'data_consulta', 'fonte'];
 
 // PB10 — potência instalada (CC) mínima aceita, em fração da potência nominal CA do inversor
@@ -30,7 +33,7 @@ function positivo(texto) {
 }
 
 function lerLinha(linha) {
-  const [id, fabricante, modelo, potenciaW, potenciaMaxPvW, tensaoMaxV, mpptMinV, mpptMaxV, numMppt, suportaBateria, bateriasCompativeis, precoBrl, dataConsulta, ...resto] =
+  const [id, fabricante, modelo, potenciaW, potenciaMaxPvW, tensaoMaxV, mpptMinV, mpptMaxV, numMppt, correnteMaxEntradaA, eficienciaMaxPercentual, suportaBateria, bateriasCompativeis, precoBrl, dataConsulta, ...resto] =
     linha.split(',').map((c) => c.trim());
 
   const inversor = {
@@ -43,6 +46,8 @@ function lerLinha(linha) {
     mpptMinV: positivo(mpptMinV),
     mpptMaxV: positivo(mpptMaxV),
     numMppt: positivo(numMppt),
+    correnteMaxEntradaA: positivo(correnteMaxEntradaA),
+    eficienciaMaxPercentual: positivo(eficienciaMaxPercentual),
     suportaBateria: suportaBateria === 'true',
     bateriasCompativeis: bateriasCompativeis ? bateriasCompativeis.split('|') : [],
     precoBrl: positivo(precoBrl),
@@ -56,7 +61,9 @@ function lerLinha(linha) {
     inversor.tensaoMaxV,
     inversor.mpptMinV,
     inversor.mpptMaxV,
-    inversor.precoBrl
+    inversor.precoBrl,
+    inversor.correnteMaxEntradaA,
+    inversor.eficienciaMaxPercentual
   ];
   const valido =
     Number.isInteger(inversor.id) &&
@@ -69,7 +76,8 @@ function lerLinha(linha) {
     /^\d{4}-\d{2}-\d{2}$/.test(inversor.dataConsulta) &&
     inversor.potenciaMaxPvW >= inversor.potenciaW &&
     inversor.mpptMinV < inversor.mpptMaxV &&
-    inversor.mpptMaxV <= inversor.tensaoMaxV;
+    inversor.mpptMaxV <= inversor.tensaoMaxV &&
+    inversor.eficienciaMaxPercentual <= 100;
 
   return valido ? inversor : null;
 }
@@ -79,16 +87,20 @@ function carregarInversores(arquivo = ARQUIVO_PADRAO) {
   const linhas = fs.readFileSync(arquivo, 'utf-8').split(/\r?\n/).filter((l) => l.trim() !== '');
   const cabecalho = linhas.shift().replace(/^\uFEFF/, '').split(',').map((c) => c.trim());
 
+  const antigoCompleto = COLUNAS_ANTIGAS.length === cabecalho.length && COLUNAS_ANTIGAS.every((c, i) => cabecalho[i] === c);
   const legado = COLUNAS_LEGADAS.length === cabecalho.length && COLUNAS_LEGADAS.every((c, i) => cabecalho[i] === c);
-  if (!legado && (cabecalho.length !== COLUNAS.length || COLUNAS.some((c, i) => cabecalho[i] !== c))) {
+  if (!antigoCompleto && !legado && (cabecalho.length !== COLUNAS.length || COLUNAS.some((c, i) => cabecalho[i] !== c))) {
     throw new Error(`dataset de inversores com cabeçalho inválido (esperado: ${COLUNAS.join(',')})`);
   }
 
   const inversores = [];
   for (let linha of linhas) {
-    if (legado) {
+    if (antigoCompleto) {
       const campos = linha.split(',');
-      linha = [...campos.slice(0, 9), 'false', '', ...campos.slice(9)].join(',');
+      linha = [...campos.slice(0, 9), '18', '97.5', ...campos.slice(9)].join(',');
+    } else if (legado) {
+      const campos = linha.split(',');
+      linha = [...campos.slice(0, 9), '18', '97.5', 'false', '', ...campos.slice(9)].join(',');
     }
     const inversor = lerLinha(linha);
     if (!inversor) {
@@ -113,8 +125,9 @@ function inversoresDisponiveis() {
 }
 
 // PB10 — as entradas vêm do cenário: potência instalada (kWp) e tensões da string de módulos (V)
-function validarEntradaCompatibilidade({ potenciaInstaladaKwp, tensaoStringVocV, tensaoStringMppV }) {
+function validarEntradaCompatibilidade({ potenciaInstaladaKwp, tensaoStringVocV, tensaoStringMppV, correnteModuloA }) {
   const campos = { potenciaInstaladaKwp, tensaoStringVocV, tensaoStringMppV };
+  if (correnteModuloA !== undefined) campos.correnteModuloA = correnteModuloA;
   for (const [nome, valor] of Object.entries(campos)) {
     if (typeof valor !== 'number' || !Number.isFinite(valor) || valor <= 0) {
       return `${nome} deve ser um número maior que zero`;
@@ -124,7 +137,7 @@ function validarEntradaCompatibilidade({ potenciaInstaladaKwp, tensaoStringVocV,
 }
 
 // PB10 — potência mínima/máxima suportada e faixa de tensão de entrada (não olha o preço)
-function avaliarCompatibilidade(inversor, { potenciaInstaladaKwp, tensaoStringVocV, tensaoStringMppV }) {
+function avaliarCompatibilidade(inversor, { potenciaInstaladaKwp, tensaoStringVocV, tensaoStringMppV, correnteModuloA }) {
   const potenciaCcW = Number((potenciaInstaladaKwp * 1000).toFixed(2));
   const minimoW = inversor.potenciaW * RAZAO_CC_CA_MIN;
   const motivos = [];
@@ -145,6 +158,9 @@ function avaliarCompatibilidade(inversor, { potenciaInstaladaKwp, tensaoStringVo
     motivos.push(
       `tensão MPP da string (${tensaoStringMppV} V) fora da faixa MPPT do inversor (${inversor.mpptMinV}–${inversor.mpptMaxV} V)`
     );
+  }
+  if (Number.isFinite(correnteModuloA) && correnteModuloA > inversor.correnteMaxEntradaA) {
+    motivos.push(`corrente do módulo (${correnteModuloA} A) acima do máximo por MPPT do inversor (${inversor.correnteMaxEntradaA} A)`);
   }
 
   return { compativel: motivos.length === 0, motivos };

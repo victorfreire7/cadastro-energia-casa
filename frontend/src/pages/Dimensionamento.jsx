@@ -81,9 +81,10 @@ export default function Dimensionamento() {
   const [painelId, setPainelId] = useState('');
   const [inversorId, setInversorId] = useState('');
   const [eficienciaSistema, setEficienciaSistema] = useState('0.75');
-  const [diasReferencia, setDiasReferencia] = useState('30');
   const [custosExtras, setCustosExtras] = useState({ custoEstruturaBrl: '0', custoCabeamentoBrl: '0', custoProtecoesBrl: '0', custoInstalacaoBrl: '0', fontesCustosComplementares: '' });
   const [alternativasInversor, setAlternativasInversor] = useState([]);
+  const [inversoresCompativeis, setInversoresCompativeis] = useState([]);
+  const [inversoresRejeitados, setInversoresRejeitados] = useState([]);
   const [cenariosSalvos, setCenariosSalvos] = useState([]);
   const [cenarioEditandoId, setCenarioEditandoId] = useState(null);
 
@@ -181,18 +182,48 @@ export default function Dimensionamento() {
     : null;
   const painelSelecionado = paineis.find((p) => p.id === Number(painelId));
   const potenciaSistemaKwp = energiaFv && hspEfetivo && Number(eficienciaSistema) > 0
-    ? energiaFv / (hspEfetivo * Number(diasReferencia) * Number(eficienciaSistema)) : null;
+    ? (energiaFv / 30) / (hspEfetivo * Number(eficienciaSistema)) : null;
   const quantidadePaineis = painelSelecionado && potenciaSistemaKwp
     ? Math.ceil(potenciaSistemaKwp * 1000 / painelSelecionado.potenciaWp) : null;
   const potenciaInstaladaKwp = painelSelecionado && quantidadePaineis
     ? quantidadePaineis * painelSelecionado.potenciaWp / 1000 : null;
   const bateriaCompativel = (inversor) => !comArmazenamento || (bateriaSelecionada && inversor.suportaBateria && inversor.bateriasCompativeis.some((nome) => `${bateriaSelecionada.fabricante} ${bateriaSelecionada.modelo}`.includes(nome)));
-  const inversoresFiltrados = inversores.filter(bateriaCompativel);
+  const inversoresFiltrados = inversoresCompativeis.filter(bateriaCompativel);
   const inversorSelecionado = inversores.find((i) => i.id === Number(inversorId));
+  const geracaoDiariaPreview = potenciaInstaladaKwp && hspEfetivo && Number(eficienciaSistema) > 0
+    ? potenciaInstaladaKwp * hspEfetivo * Number(eficienciaSistema) : null;
+  const geracaoMensalPreview = geracaoDiariaPreview === null ? null : geracaoDiariaPreview * 30;
+  const energiaCompensadaPreview = geracaoMensalPreview === null || !consumoEfetivo
+    ? null : Math.min(geracaoMensalPreview, consumoEfetivo);
+  const excedentePreview = geracaoMensalPreview === null || !consumoEfetivo
+    ? null : Math.max(0, geracaoMensalPreview - consumoEfetivo);
+  const atendimentoPreview = geracaoMensalPreview === null || !consumoEfetivo
+    ? null : (geracaoMensalPreview / consumoEfetivo) * 100;
   const custoPaineisPreview = painelSelecionado && quantidadePaineis ? painelSelecionado.precoBrl * quantidadePaineis : 0;
   const custoBateriasPreview = bateriaSelecionada && quantidadeBaterias ? bateriaSelecionada.precoBrl * quantidadeBaterias : 0;
   const custoEquipamentosPreview = custoPaineisPreview + (inversorSelecionado?.precoBrl || 0) + custoBateriasPreview;
   const custosExtrasPreview = ['custoEstruturaBrl', 'custoCabeamentoBrl', 'custoProtecoesBrl', 'custoInstalacaoBrl'].reduce((soma, chave) => soma + (Number(custosExtras[chave]) || 0), 0);
+
+  useEffect(() => {
+    if (!painelSelecionado || !quantidadePaineis) {
+      setInversoresCompativeis([]);
+      setInversoresRejeitados([]);
+      return undefined;
+    }
+    let ativo = true;
+    api.get('/dimensionamento/inversores/compativeis', {
+      params: { painelId: painelSelecionado.id, quantidade: quantidadePaineis }
+    }).then(({ data }) => {
+      if (!ativo) return;
+      setInversoresCompativeis(data.compativeis);
+      setInversoresRejeitados(data.rejeitados);
+    }).catch(() => {
+      if (!ativo) return;
+      setInversoresCompativeis([]);
+      setInversoresRejeitados([]);
+    });
+    return () => { ativo = false; };
+  }, [painelSelecionado?.id, quantidadePaineis]);
 
   function handleAutonomia(valor) {
     setAutonomia(valor);
@@ -248,17 +279,12 @@ export default function Dimensionamento() {
       setErro('selecione um módulo e um inversor para calcular o sistema e o orçamento');
       return;
     }
-    if (!inversorSelecionado || !bateriaCompativel(inversorSelecionado)) {
-      setErro('o inversor selecionado não é compatível com a bateria. Escolha um inversor híbrido compatível.');
+    if (!inversorSelecionado || !inversoresFiltrados.some((i) => i.id === inversorSelecionado.id)) {
+      setErro('o inversor selecionado não é compatível com o arranjo fotovoltaico e a bateria; escolha uma opção compatível.');
       return;
     }
-    if (!potenciaInstaladaKwp || potenciaInstaladaKwp * 1000 > inversorSelecionado.potenciaMaxPvW || potenciaInstaladaKwp * 1000 > inversorSelecionado.potenciaW * 1.5) {
-      setErro('o inversor não suporta a potência calculada. Selecione uma alternativa compatível.');
-      setAlternativasInversor(inversores.filter((i) => bateriaCompativel(i) && potenciaInstaladaKwp * 1000 <= i.potenciaMaxPvW && potenciaInstaladaKwp * 1000 <= i.potenciaW * 1.5));
-      return;
-    }
-    if (Number(eficienciaSistema) <= 0 || Number(eficienciaSistema) > 1 || !Number.isInteger(Number(diasReferencia)) || Number(diasReferencia) < 1 || Number(diasReferencia) > 31 || ['custoEstruturaBrl', 'custoCabeamentoBrl', 'custoProtecoesBrl', 'custoInstalacaoBrl'].some((k) => Number(custosExtras[k]) < 0 || !Number.isFinite(Number(custosExtras[k])))) {
-      setErro('verifique a eficiência (entre 0 e 100%), os dias de referência (1 a 31) e os custos complementares (não negativos)');
+    if (Number(eficienciaSistema) <= 0 || Number(eficienciaSistema) > 1 || ['custoEstruturaBrl', 'custoCabeamentoBrl', 'custoProtecoesBrl', 'custoInstalacaoBrl'].some((k) => Number(custosExtras[k]) < 0 || !Number.isFinite(Number(custosExtras[k])))) {
+      setErro('verifique o PR (entre 0 e 100%) e os custos complementares (não negativos)');
       return;
     }
 
@@ -278,7 +304,6 @@ export default function Dimensionamento() {
         painelId: Number(painelId),
         inversorId: Number(inversorId),
         eficienciaSistema: Number(eficienciaSistema),
-        diasReferencia: Number(diasReferencia),
         ...Object.fromEntries(Object.entries(custosExtras).filter(([key]) => key !== 'fontesCustosComplementares').map(([key, value]) => [key, Number(value)])),
         fontesCustosComplementares: custosExtras.fontesCustosComplementares
       };
@@ -552,29 +577,53 @@ export default function Dimensionamento() {
             </select>
           </div>
           <div className="field">
-            <label htmlFor="eficiencia">Eficiência global do sistema (η), entre 1% e 100%</label>
+            <label htmlFor="eficiencia">Fator global de desempenho (PR), fração entre 0,01 e 1,00</label>
             <input id="eficiencia" type="number" min="0.01" max="1" step="0.01" value={eficienciaSistema} onChange={(e) => setEficienciaSistema(e.target.value)} />
-            <p className="imovel-meta">Eficiência padrão 75%, editável. D é configurável entre 1 e 31 dias (padrão 30). A estimativa não substitui o projeto elétrico de strings.</p>
-          </div>
-          <div className="field">
-            <label htmlFor="diasReferencia">Dias de referência no mês (D)</label>
-            <input id="diasReferencia" type="number" min="1" max="31" step="1" value={diasReferencia} onChange={(e) => setDiasReferencia(e.target.value)} />
+            <p className="imovel-meta">PR padrão 0,75 (75%), editável. A potência FV usa E_mês / 30, conforme a regra do backlog. A verificação de inversor considera todos os módulos em uma string série; confirme o arranjo elétrico no projeto executivo.</p>
           </div>
           {potenciaSistemaKwp !== null && painelSelecionado && (
             <p className="imovel-meta">
-              PB05–08: potência calculada {potenciaSistemaKwp.toFixed(2)} kWp; {quantidadePaineis} módulos; potência instalada {potenciaInstaladaKwp.toFixed(2)} kWp
+              PB06: {painelSelecionado.fabricante} {painelSelecionado.modelo}, {painelSelecionado.potenciaWp} Wp por módulo; potência necessária {potenciaSistemaKwp.toFixed(2)} kWp; {quantidadePaineis} módulos; potência instalada {potenciaInstaladaKwp.toFixed(2)} kWp
               {potenciaInstaladaKwp >= potenciaSistemaKwp ? ' (cobre a potência calculada).' : ' (abaixo da potência calculada).'}
             </p>
           )}
           <div className="field">
-            <label htmlFor="inversor">Inversor</label>
+            <label htmlFor="inversor">PB07 — Inversor compatível com o arranjo</label>
             <select id="inversor" value={inversorId} onChange={(e) => setInversorId(e.target.value)} required>
-              <option value="">Selecione um inversor</option>
-              {inversoresFiltrados.map((i) => <option key={i.id} value={i.id}>{i.fabricante} {i.modelo} — {i.potenciaW / 1000} kW{i.suportaBateria ? ' · híbrido, compatível com bateria' : ' · sem suporte a bateria'}</option>)}
+              <option value="">{inversoresFiltrados.length ? 'Selecione um inversor compatível' : 'Nenhum inversor compatível'}</option>
+              {inversoresFiltrados.map((i) => <option key={i.id} value={i.id}>{i.fabricante} {i.modelo} — {i.potenciaW / 1000} kW · η máx. {i.eficienciaMaxPercentual}% · R$ {Number(i.precoBrl).toFixed(2)}{i.suportaBateria ? ' · híbrido' : ''}</option>)}
             </select>
             {comArmazenamento && bateriaId && inversoresFiltrados.length === 0 && <div className="error-message">Nenhum inversor do catálogo declara compatibilidade com essa bateria. Selecione Dyness B4850 para usar o inversor híbrido cadastrado.</div>}
+            {inversoresRejeitados.length > 0 && (
+              <details className="imovel-meta">
+                <summary>Ver limites que eliminaram outras opções</summary>
+                {inversoresRejeitados.map(({ inversor, motivos }) => (
+                  <p key={inversor.id}>{inversor.fabricante} {inversor.modelo}: {motivos.join('; ')}.</p>
+                ))}
+              </details>
+            )}
+            {inversores.length > 0 && inversoresFiltrados.length === 0 && !comArmazenamento && (
+              <div className="error-message">O catálogo não contém inversor compatível com a potência e a faixa de tensão calculadas para uma string.</div>
+            )}
           </div>
           {painelSelecionado && <p className="imovel-meta">Módulo: ficha técnica e preço de varejo consultados em {painelSelecionado.dataConsulta}. Fonte: {painelSelecionado.fonte}</p>}
+
+          <h2 className="section-title">PB08–PB09 — Geração estimada e atendimento do consumo</h2>
+          {geracaoMensalPreview !== null && atendimentoPreview !== null ? (
+            <table className="table">
+              <tbody>
+                <tr><th>Geração estimada diária</th><td className="metric">{geracaoDiariaPreview.toFixed(2)} kWh/dia</td></tr>
+                <tr><th>Geração estimada mensal</th><td className="metric">{geracaoMensalPreview.toFixed(2)} kWh/mês</td></tr>
+                <tr><th>Consumo mensal de referência</th><td className="metric">{Number(consumoEfetivo).toFixed(2)} kWh/mês</td></tr>
+                <tr><th>Geração / consumo</th><td className="metric">{atendimentoPreview.toFixed(2)}%</td></tr>
+                <tr><th>Energia estimada compensada</th><td className="metric">{energiaCompensadaPreview.toFixed(2)} kWh/mês</td></tr>
+                <tr><th>Excedente estimado</th><td className="metric">{excedentePreview.toFixed(2)} kWh/mês</td></tr>
+              </tbody>
+            </table>
+          ) : (
+            <p className="imovel-meta">Selecione um módulo compatível e informe consumo, HSP e PR válidos para estimar geração e atendimento.</p>
+          )}
+          {geracaoMensalPreview !== null && <p className="imovel-meta">E_gerada,dia = P_inst × HSP × PR; E_gerada,mês = E_gerada,dia × 30. O percentual pode superar 100%; energia compensada é limitada ao consumo informado e o excedente é exibido separadamente.</p>}
 
           <h2 className="section-title">Custos complementares</h2>
           <p className="imovel-meta">Informe os valores da proposta/instalação. Os padrões são R$ 0,00 e representam itens ainda não orçados.</p>
@@ -637,6 +686,11 @@ export default function Dimensionamento() {
                 <th>Energia mensal a gerar (E_FV)</th>
                 <td className="metric">{cenario.energiaMensalFvKwh} kWh/mês</td>
               </tr>
+              <tr><th>Geração estimada diária</th><td className="metric">{cenario.geracaoDiariaKwh ?? '—'} kWh/dia</td></tr>
+              <tr><th>Geração estimada mensal</th><td className="metric">{cenario.geracaoMensalKwh ?? '—'} kWh/mês</td></tr>
+              <tr><th>Geração / consumo</th><td className="metric">{cenario.atendimentoPercentual ?? '—'}%</td></tr>
+              <tr><th>Energia estimada compensada</th><td className="metric">{cenario.energiaCompensadaKwh ?? '—'} kWh/mês</td></tr>
+              <tr><th>Excedente estimado</th><td className="metric">{cenario.excedenteKwh ?? '—'} kWh/mês</td></tr>
               <tr>
                 <th>Potência calculada / instalada</th>
                 <td className="metric">{cenario.potenciaSistemaKwp ?? '—'} / {cenario.potenciaInstaladaKwp ?? '—'} kWp</td>
@@ -740,7 +794,6 @@ export default function Dimensionamento() {
             setPainelId(cenario.painelId ? String(cenario.painelId) : '');
             setInversorId(cenario.inversorId ? String(cenario.inversorId) : '');
             setEficienciaSistema(String(cenario.eficienciaSistema || 0.75));
-            setDiasReferencia(String(cenario.diasReferencia || 30));
             setCustosExtras({ custoEstruturaBrl: String(cenario.custoEstruturaBrl), custoCabeamentoBrl: String(cenario.custoCabeamentoBrl), custoProtecoesBrl: String(cenario.custoProtecoesBrl), custoInstalacaoBrl: String(cenario.custoInstalacaoBrl), fontesCustosComplementares: cenario.fontesCustosComplementares || '' });
             setCenarioEditandoId(cenario.id);
             setCenario(null);

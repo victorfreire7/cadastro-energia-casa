@@ -28,7 +28,8 @@ const {
   montarLogSelecaoBateria
 } = require('../services/baterias');
 const { paineisDisponiveis, dimensionarSistema } = require('../services/paineis');
-const { inversoresDisponiveis } = require('../services/inversores');
+const { inversoresDisponiveis, selecionarInversoresCompativeis, escolherInversor } = require('../services/inversores');
+const { calcularGeracaoFotovoltaica } = require('../services/geracaoFotovoltaica');
 
 async function buscarImovelDoUsuario(id, usuarioId) {
   return prisma.imovel.findFirst({
@@ -89,6 +90,43 @@ function consultarInversores(req, res) {
   res.json({ inversores: inversoresDisponiveis() });
 }
 
+function consultarInversoresCompativeis(req, res) {
+  const painel = paineisDisponiveis().find((item) => item.id === Number(req.query.painelId));
+  const quantidade = Number(req.query.quantidade);
+  if (!painel) return res.status(400).json({ message: 'selecione um módulo válido' });
+  if (!Number.isInteger(quantidade) || quantidade <= 0) {
+    return res.status(400).json({ message: 'quantidade de módulos deve ser um inteiro maior que zero' });
+  }
+
+  // Esta etapa avalia uma string com todos os módulos em série.
+  const arranjo = {
+    quantidadeModulos: quantidade,
+    potenciaInstaladaKwp: Number(((painel.potenciaWp * quantidade) / 1000).toFixed(3)),
+    tensaoStringVocV: Number((painel.vocV * quantidade).toFixed(2)),
+    tensaoStringMppV: Number((painel.vmpV * quantidade).toFixed(2)),
+    correnteModuloA: painel.correnteA,
+    configuracao: 'todos os módulos em uma string série'
+  };
+  const resultado = selecionarInversoresCompativeis(arranjo);
+  res.json({
+    arranjo,
+    compativeis: resultado.compativeis || [],
+    rejeitados: resultado.rejeitados || [],
+    ...(resultado.erro && { message: resultado.erro })
+  });
+}
+
+function adicionarResultadosDeGeracao(cenario) {
+  if (!cenario.potenciaInstaladaKwp || !cenario.hspKwhM2Dia || !cenario.eficienciaSistema) return cenario;
+  const resultado = calcularGeracaoFotovoltaica({
+    potenciaInstaladaKwp: cenario.potenciaInstaladaKwp,
+    hsp: cenario.hspKwhM2Dia,
+    pr: cenario.eficienciaSistema,
+    consumoMensalKwh: cenario.consumoReferenciaKwh
+  });
+  return resultado.erro ? cenario : { ...cenario, ...resultado };
+}
+
 function resolverOrcamento(body, energiaMensalKwh, hsp, armazenamento, bateriaId, defaults = {}) {
   const painelId = body.painelId ?? defaults.painelId;
   const inversorId = body.inversorId ?? defaults.inversorId;
@@ -117,10 +155,19 @@ function resolverOrcamento(body, energiaMensalKwh, hsp, armazenamento, bateriaId
     painel = potencia.painel;
     inversor = inversoresDisponiveis().find((item) => item.id === Number(inversorId));
     if (!inversor) return { erro: 'inversor não encontrado' };
-    const dcW = potencia.potenciaInstaladaKwp * 1000;
-    if (dcW > inversor.potenciaMaxPvW || dcW > inversor.potenciaW * 1.5) {
-      const alternativas = inversoresDisponiveis().filter((item) => dcW <= item.potenciaMaxPvW && dcW <= item.potenciaW * 1.5);
-      return { erro: `inversor incompatível com a potência calculada (${dcW.toFixed(0)} W CC)`, alternativas: alternativas.map(({ id, fabricante, modelo }) => ({ id, fabricante, modelo })) };
+    const entradaInversor = {
+      potenciaInstaladaKwp: potencia.potenciaInstaladaKwp,
+      tensaoStringVocV: painel.vocV * potencia.quantidade,
+      tensaoStringMppV: painel.vmpV * potencia.quantidade,
+      correnteModuloA: painel.correnteA
+    };
+    const validacaoInversor = escolherInversor(inversorId, entradaInversor);
+    if (validacaoInversor.erro) {
+      const alternativas = selecionarInversoresCompativeis(entradaInversor);
+      return {
+        erro: validacaoInversor.erro,
+        alternativas: (alternativas.compativeis || []).map(({ id, fabricante, modelo }) => ({ id, fabricante, modelo }))
+      };
     }
     if (armazenamento) {
       const bateria = bateriasDisponiveis().find((item) => item.id === Number(bateriaId));
@@ -327,7 +374,7 @@ async function criar(req, res) {
     }
   });
 
-  res.status(201).json(cenario);
+  res.status(201).json(adicionarResultadosDeGeracao(cenario));
 }
 
 async function buscarCenarioDoUsuario(imovelId, cenarioId, usuarioId) {
@@ -346,7 +393,7 @@ async function obter(req, res) {
   if (!cenario) {
     return res.status(404).json({ message: 'cenário não encontrado' });
   }
-  res.json(cenario);
+  res.json(adicionarResultadosDeGeracao(cenario));
 }
 
 // PUT /imoveis/:id/cenarios/:cenarioId — ajusta parâmetros e recalcula HSP/E_FV
@@ -454,7 +501,7 @@ async function atualizar(req, res) {
     }
   });
 
-  res.json(cenario);
+  res.json(adicionarResultadosDeGeracao(cenario));
 }
 
 // GET /imoveis/:id/cenarios/:cenarioId/logs — evidências de cálculo
@@ -474,7 +521,7 @@ async function listarCenarios(req, res) {
   const imovel = await buscarImovelDoUsuario(req.params.id, req.usuarioId);
   if (!imovel) return res.status(404).json({ message: 'imóvel não encontrado' });
   const cenarios = await prisma.cenarioDimensionamento.findMany({ where: { imovelId: imovel.id }, orderBy: { createdAt: 'desc' } });
-  res.json(cenarios);
+  res.json(cenarios.map(adicionarResultadosDeGeracao));
 }
 
-module.exports = { referencia, consultarHsp, consultarBaterias, consultarPaineis, consultarInversores, criar, listarCenarios, obter, atualizar, logs };
+module.exports = { referencia, consultarHsp, consultarBaterias, consultarPaineis, consultarInversores, consultarInversoresCompativeis, criar, listarCenarios, obter, atualizar, logs };

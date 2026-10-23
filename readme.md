@@ -81,6 +81,17 @@ Mapeamento de cada item do Product Backlog (ver `Backlog Projeto SERS.docx` e `A
 | **PB08** | Alerta e Validação de Inconsistências (dados negativos/inválidos/vazios) | Backend: validação de email e senha mínima em `authController.js`; validação de potência/quantidade/horas em `imovelController.js` (`validarEletrodomesticos`). Frontend: limites `min`/`max` nos campos de `pages/ImovelForm.jsx` |
 | **PB09** | Proteção dos Dados (privacidade de acesso) | Backend: hash de senha com `bcrypt`, autenticação via JWT em `middlewares/auth.js`, verificação de propriedade do recurso (`usuarioId`) em todas as rotas de imóvel/consumo |
 
+### Sprint 3 final — PB06 a PB09
+
+Os códigos PB do backlog final da Sprint 3 são uma numeração própria e não substituem a tabela PB01–PB09 acima. Nesta Sprint, PB06–PB09 cobrem o dimensionamento dos módulos, compatibilidade do inversor, estimativa de geração e comparação entre geração e consumo.
+
+| PB Sprint 3 | Implementação |
+|---|---|
+| **PB06** | `services/paineis.js` seleciona o módulo do dataset, arredonda a quantidade para cima e calcula a potência instalada. |
+| **PB07** | `GET /dimensionamento/inversores/compativeis` filtra candidatos por potência, tensão máxima, faixa MPPT e corrente de entrada; a API repete a validação ao salvar. O cálculo assume os módulos em uma string série. O catálogo mantém potência, limites elétricos, MPPT, eficiência máxima, preço e fonte. |
+| **PB08** | `services/geracaoFotovoltaica.js` estima geração diária e mensal usando potência instalada, HSP e PR. |
+| **PB09** | A interface e a API apresentam geração/consumo, energia compensável limitada ao consumo e excedente estimado em separado. |
+
 ## Evolução Fotovoltaica → Implementação
 
 Segunda fase do backlog (`PBs_Sistema_Fotovoltaico_Tasks.pdf`, PB01–PB20). Os códigos abaixo são os do **novo** backlog fotovoltaico, não os PB01–PB09 da tabela anterior.
