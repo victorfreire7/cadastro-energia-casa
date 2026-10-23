@@ -246,6 +246,16 @@ button {
   margin-bottom: 1rem;
 }
 
+.table-wrap {
+  max-width: 100%;
+  overflow-x: auto;
+  margin-bottom: 1rem;
+}
+
+.table-wrap .table {
+  min-width: 680px;
+}
+
 .table th,
 .table td {
   text-align: left;

@@ -65,12 +65,18 @@ function bateriaPublica(bateria) {
     fabricante: bateria.fabricante,
     modelo: bateria.modelo,
     tecnologia: bateria.tecnologia,
+    capacidadeAh: bateria.capacidadeAh,
     capacidadeKwh: bateria.capacidadeKwh,
     dod: bateria.dod,
     dodPercentual: bateria.dodPercentual,
     tensaoV: bateria.tensaoV,
+    ciclos: bateria.ciclos,
+    ciclosCondicao: bateria.ciclosCondicao,
+    ciclosTexto: bateria.ciclosTexto,
     precoBrl: bateria.precoBrl,
     dataConsulta: bateria.dataConsulta,
+    dataConsultaPreco: bateria.dataConsultaPreco,
+    dataConsultaTecnica: bateria.dataConsultaTecnica,
     fonte: bateria.fonte
   };
 }
@@ -116,15 +122,113 @@ function consultarInversoresCompativeis(req, res) {
   });
 }
 
+function arredondarMoeda(valor) {
+  const numero = Number(valor);
+  return Number.isFinite(numero) ? Number(numero.toFixed(2)) : 0;
+}
+
+// PB13 — monta os itens com os subtotais persistidos no cenário e metadados dos datasets.
+// Assim o orçamento exibido mantém os preços históricos usados no cálculo, mesmo se o catálogo mudar.
+function montarItensOrcamento(cenario) {
+  const itens = [];
+  const custoPainel = arredondarMoeda(cenario.custoPaineisBrl);
+  const quantidadePaineis = Number(cenario.quantidadePaineis) || 0;
+  if (cenario.painelId != null && quantidadePaineis > 0) {
+    const painel = paineisDisponiveis().find((item) => item.id === Number(cenario.painelId));
+    itens.push({
+      tipo: 'Módulos fotovoltaicos',
+      fabricante: painel?.fabricante || 'Catálogo de módulos',
+      modelo: painel?.modelo || `ID ${cenario.painelId}`,
+      quantidade: quantidadePaineis,
+      precoUnitarioBrl: arredondarMoeda(custoPainel / quantidadePaineis),
+      subtotalBrl: custoPainel,
+      dataConsulta: painel?.dataConsulta || null,
+      fonte: painel?.fonte || null,
+      origem: 'dataset'
+    });
+  }
+
+  if (cenario.inversorId != null) {
+    const inversor = inversoresDisponiveis().find((item) => item.id === Number(cenario.inversorId));
+    const subtotalBrl = arredondarMoeda(cenario.custoInversorBrl);
+    itens.push({
+      tipo: 'Inversor',
+      fabricante: inversor?.fabricante || 'Catálogo de inversores',
+      modelo: inversor?.modelo || `ID ${cenario.inversorId}`,
+      quantidade: 1,
+      precoUnitarioBrl: subtotalBrl,
+      subtotalBrl,
+      dataConsulta: inversor?.dataConsulta || null,
+      fonte: inversor?.fonte || null,
+      origem: 'dataset'
+    });
+  }
+
+  const quantidadeBaterias = Number(cenario.quantidadeBaterias) || 0;
+  if (cenario.armazenamento && cenario.bateriaId != null && quantidadeBaterias > 0) {
+    const bateria = bateriasDisponiveis().find((item) => item.id === Number(cenario.bateriaId));
+    const subtotalBrl = arredondarMoeda(cenario.custoBateriaBrl);
+    itens.push({
+      tipo: 'Baterias',
+      fabricante: bateria?.fabricante || 'Catálogo de baterias',
+      modelo: bateria?.modelo || `ID ${cenario.bateriaId}`,
+      quantidade: quantidadeBaterias,
+      precoUnitarioBrl: arredondarMoeda(subtotalBrl / quantidadeBaterias),
+      subtotalBrl,
+      dataConsulta: bateria?.dataConsulta || null,
+      dataConsultaTecnica: bateria?.dataConsultaTecnica || null,
+      fonte: bateria?.fonte || null,
+      origem: 'dataset'
+    });
+  }
+
+  const complementares = [
+    ['Estrutura de fixação', 'custoEstruturaBrl'],
+    ['Cabeamento', 'custoCabeamentoBrl'],
+    ['Proteções elétricas', 'custoProtecoesBrl'],
+    ['Instalação', 'custoInstalacaoBrl']
+  ];
+  for (const [tipo, campo] of complementares) {
+    const subtotalBrl = arredondarMoeda(cenario[campo]);
+    itens.push({
+      tipo,
+      fabricante: 'Informado pelo usuário',
+      modelo: 'Conforme proposta/premissa informada',
+      quantidade: 1,
+      precoUnitarioBrl: subtotalBrl,
+      subtotalBrl,
+      dataConsulta: null,
+      fonte: cenario.fontesCustosComplementares || 'Valor informado no formulário; sem fonte adicional registrada.',
+      origem: 'informado'
+    });
+  }
+
+  return itens;
+}
+
 function adicionarResultadosDeGeracao(cenario) {
-  if (!cenario.potenciaInstaladaKwp || !cenario.hspKwhM2Dia || !cenario.eficienciaSistema) return cenario;
-  const resultado = calcularGeracaoFotovoltaica({
-    potenciaInstaladaKwp: cenario.potenciaInstaladaKwp,
-    hsp: cenario.hspKwhM2Dia,
-    pr: cenario.eficienciaSistema,
-    consumoMensalKwh: cenario.consumoReferenciaKwh
-  });
-  return resultado.erro ? cenario : { ...cenario, ...resultado };
+  if (!cenario) return cenario;
+  let resultadoFinal = cenario;
+  if (cenario.potenciaInstaladaKwp && cenario.hspKwhM2Dia && cenario.eficienciaSistema) {
+    const resultado = calcularGeracaoFotovoltaica({
+      potenciaInstaladaKwp: cenario.potenciaInstaladaKwp,
+      hsp: cenario.hspKwhM2Dia,
+      pr: cenario.eficienciaSistema,
+      consumoMensalKwh: cenario.consumoReferenciaKwh
+    });
+    if (!resultado.erro) resultadoFinal = { ...cenario, ...resultado };
+  }
+  const bateria = cenario.bateriaId == null
+    ? null
+    : bateriasDisponiveis().find((item) => item.id === Number(cenario.bateriaId));
+  const itensOrcamento = montarItensOrcamento(cenario);
+  const totalItensOrcamentoBrl = arredondarMoeda(itensOrcamento.reduce((soma, item) => soma + item.subtotalBrl, 0));
+  return {
+    ...resultadoFinal,
+    bateriaSelecionada: bateria ? bateriaPublica(bateria) : null,
+    itensOrcamento,
+    totalItensOrcamentoBrl
+  };
 }
 
 function resolverOrcamento(body, energiaMensalKwh, hsp, armazenamento, bateriaId, defaults = {}) {
@@ -182,7 +286,10 @@ function resolverOrcamento(body, energiaMensalKwh, hsp, armazenamento, bateriaId
     potenciaSistemaKwp = potencia.potenciaNecessariaKwp;
     potenciaInstaladaKwp = potencia.potenciaInstaladaKwp;
     log = potencia.log;
-  } else if (painelId !== undefined || inversorId !== undefined) {
+  } else if (
+    (painelId !== undefined && painelId !== null) ||
+    (inversorId !== undefined && inversorId !== null)
+  ) {
     return { erro: 'selecione painel e inversor para dimensionar o sistema' };
   }
 
@@ -207,17 +314,27 @@ function resolverDimensionamentoBateria({ consumoKwhMes, armazenamento, autonomi
     };
   }
 
+  let bateria = null;
+  if (!vazio(bateriaId)) {
+    const selecionada = selecionarBateria(bateriaId);
+    if (selecionada.erro) return selecionada;
+    bateria = selecionada.bateria;
+  } else if (!permitirSemSelecao) {
+    return { erro: 'bateriaId é obrigatória quando há armazenamento' };
+  }
+
+  // PB11 — usa o DoD do modelo selecionado; o padrão só se aplica a cenários legados sem modelo.
+  const dodAplicado = bateria?.dod ?? DOD_PADRAO;
   const capacidade = calcularCapacidadeBateria(
     consumoKwhMes,
     autonomiaHoras,
-    DOD_PADRAO,
+    dodAplicado,
     EFICIENCIA_BATERIA_PADRAO
   );
   if (capacidade.erro) return capacidade;
   const logCapacidade = montarLogCapacidadeBateria(consumoKwhMes, autonomiaHoras, capacidade);
 
-  if (vazio(bateriaId)) {
-    if (!permitirSemSelecao) return { erro: 'bateriaId é obrigatória quando há armazenamento' };
+  if (!bateria) {
     return {
       dados: {
         capacidadeBateriaNecessariaKwh: capacidade.capacidadeNecessariaKwh,
@@ -230,18 +347,16 @@ function resolverDimensionamentoBateria({ consumoKwhMes, armazenamento, autonomi
     };
   }
 
-  const selecionada = selecionarBateria(bateriaId);
-  if (selecionada.erro) return selecionada;
   const energiaAutonomiaKwhExata = (consumoKwhMes / 30) * (autonomiaHoras / 24);
   const dimensionamento = dimensionarBaterias({
-    bateria: selecionada.bateria,
+    bateria,
     energiaAutonomiaKwh: energiaAutonomiaKwhExata,
     eficiencia: EFICIENCIA_BATERIA_PADRAO
   });
   if (dimensionamento.erro) return dimensionamento;
   return {
     dados: {
-      capacidadeBateriaNecessariaKwh: capacidade.capacidadeNecessariaKwh,
+      capacidadeBateriaNecessariaKwh: dimensionamento.capacidadeNominalNecessariaKwh,
       bateriaId: dimensionamento.bateria.id,
       quantidadeBaterias: dimensionamento.quantidade,
       capacidadeBateriaInstaladaKwh: dimensionamento.capacidadeInstaladaKwh,

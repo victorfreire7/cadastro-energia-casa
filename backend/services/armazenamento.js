@@ -1,9 +1,9 @@
 const { vazio, converterNumero, arredondar } = require('./dimensionamento');
 
-// PB12 — faixa plausível da autonomia desejada (horas)
+// PB11 — faixa plausível da autonomia desejada (horas)
 const AUTONOMIA_MIN_H = 1;
 const AUTONOMIA_MAX_H = 72;
-// PB13 — valores padrão documentados para estimar a capacidade nominal requerida.
+// PB11 — parâmetros padrão documentados para estimar a capacidade nominal requerida.
 const DOD_PADRAO = 0.8;
 const EFICIENCIA_BATERIA_PADRAO = 0.9;
 
@@ -21,8 +21,8 @@ function validarAutonomia(valor) {
   return { valor: numero };
 }
 
-// PB11 — escolha explícita com/sem baterias (padrão: sem)
-// PB12 — autonomia obrigatória só quando há armazenamento; sem armazenamento ela é descartada
+// PB10 — escolha explícita com/sem baterias (padrão: sem)
+// PB11 — autonomia obrigatória só quando há armazenamento; sem armazenamento ela é descartada
 function resolverArmazenamento({ armazenamento, autonomiaHoras }) {
   const ativo = vazio(armazenamento) ? false : armazenamento;
   if (typeof ativo !== 'boolean') {
@@ -42,12 +42,12 @@ function resolverArmazenamento({ armazenamento, autonomiaHoras }) {
   return { armazenamento: true, autonomiaHoras: autonomia.valor };
 }
 
-// PB11 — sem armazenamento, o custo de baterias é sempre zero
+// PB10 — sem armazenamento, o custo de baterias é sempre zero
 function custoBateria(armazenamento, custoCalculadoBrl = 0) {
   return armazenamento ? custoCalculadoBrl : 0;
 }
 
-// PB13 — C_m é o consumo de referência mensal salvo no cenário.
+// PB11 — C_m é o consumo de referência mensal salvo no cenário.
 function calcularCapacidadeBateria(
   consumoKwhMes,
   autonomiaHoras,

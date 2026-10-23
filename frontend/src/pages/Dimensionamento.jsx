@@ -9,6 +9,21 @@ const ORIGEM_LABEL = {
   manual: 'valor informado manualmente'
 };
 
+function formatarMoeda(valor) {
+  const numero = Number(valor);
+  return (Number.isFinite(numero) ? numero : 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+}
+
+function formatarCiclos(bateria) {
+  if (!bateria || !Number.isFinite(Number(bateria.ciclos))) return 'Não informado';
+  const condicao = bateria.ciclosCondicao === '>=' ? '≥ ' : bateria.ciclosCondicao === '>' ? '> ' : bateria.ciclosCondicao === '<=' ? '≤ ' : bateria.ciclosCondicao === '<' ? '< ' : '';
+  return `${condicao}${Number(bateria.ciclos).toLocaleString('pt-BR')} ciclos`;
+}
+
+function primeiroLink(fonte) {
+  return typeof fonte === 'string' ? (fonte.match(/https?:\/\/[^\s|,;]+/)?.[0] || null) : null;
+}
+
 const HSP_FAIXA_PADRAO = { min: 3, max: 6.5 };
 
 // PB03 — mesma faixa plausível do backend
@@ -41,7 +56,7 @@ function validarPercentualLocal(texto) {
   return '';
 }
 
-// PB12 — mesma faixa de autonomia do backend (horas)
+// PB11 — mesma faixa de autonomia do backend (horas)
 function validarAutonomiaLocal(texto) {
   const valor = texto.trim().replace(',', '.');
   if (valor === '') return 'informe a autonomia desejada em horas';
@@ -168,17 +183,20 @@ export default function Dimensionamento() {
   const energiaAutonomia = Number.isFinite(consumoEfetivo) && consumoEfetivo > 0 && autonomiaValida
     ? (consumoEfetivo / 30) * (autonomiaNumero / 24)
     : null;
+  // PB11 — utiliza o DoD real do modelo selecionado para que a capacidade nominal e a quantidade concordem.
+  const dodAplicadoBateria = bateriaSelecionada?.dod ?? dadosBaterias.padroes.dod;
   const capacidadeBateriaNecessaria = energiaAutonomia === null
     ? null
-    : energiaAutonomia / (dadosBaterias.padroes.dod * dadosBaterias.padroes.eficiencia);
+    : energiaAutonomia / (dodAplicadoBateria * dadosBaterias.padroes.eficiencia);
   const energiaUtilNecessaria = energiaAutonomia === null
     ? null
     : energiaAutonomia / dadosBaterias.padroes.eficiencia;
   const capacidadeUtilUnitaria = bateriaSelecionada
     ? bateriaSelecionada.capacidadeKwh * bateriaSelecionada.dod
     : null;
-  const quantidadeBaterias = capacidadeUtilUnitaria && energiaUtilNecessaria
-    ? Math.ceil(energiaUtilNecessaria / capacidadeUtilUnitaria)
+  // A quantidade é arredondada para cima conforme N_bat = teto(C_bat / C_unidade).
+  const quantidadeBaterias = comArmazenamento && bateriaSelecionada && capacidadeBateriaNecessaria
+    ? Math.ceil(capacidadeBateriaNecessaria / bateriaSelecionada.capacidadeKwh)
     : null;
   const painelSelecionado = paineis.find((p) => p.id === Number(painelId));
   const potenciaSistemaKwp = energiaFv && hspEfetivo && Number(eficienciaSistema) > 0
@@ -200,9 +218,27 @@ export default function Dimensionamento() {
   const atendimentoPreview = geracaoMensalPreview === null || !consumoEfetivo
     ? null : (geracaoMensalPreview / consumoEfetivo) * 100;
   const custoPaineisPreview = painelSelecionado && quantidadePaineis ? painelSelecionado.precoBrl * quantidadePaineis : 0;
-  const custoBateriasPreview = bateriaSelecionada && quantidadeBaterias ? bateriaSelecionada.precoBrl * quantidadeBaterias : 0;
+  // PB10: a alternativa convencional nunca inclui baterias no orçamento, mesmo que uma bateria
+  // continue selecionada no estado do formulário após trocar a opção.
+  const custoBateriasPreview = comArmazenamento && bateriaSelecionada && quantidadeBaterias
+    ? bateriaSelecionada.precoBrl * quantidadeBaterias
+    : 0;
   const custoEquipamentosPreview = custoPaineisPreview + (inversorSelecionado?.precoBrl || 0) + custoBateriasPreview;
-  const custosExtrasPreview = ['custoEstruturaBrl', 'custoCabeamentoBrl', 'custoProtecoesBrl', 'custoInstalacaoBrl'].reduce((soma, chave) => soma + (Number(custosExtras[chave]) || 0), 0);
+  const custosExtrasDefinidos = [
+    ['Estrutura de fixação', 'custoEstruturaBrl'],
+    ['Cabeamento', 'custoCabeamentoBrl'],
+    ['Proteções elétricas', 'custoProtecoesBrl'],
+    ['Instalação', 'custoInstalacaoBrl']
+  ];
+  const custosExtrasPreview = custosExtrasDefinidos.reduce((soma, [, chave]) => soma + (Number(custosExtras[chave]) || 0), 0);
+  const itensOrcamentoPreview = [
+    ...(painelSelecionado && quantidadePaineis ? [{ tipo: 'Módulos fotovoltaicos', fabricante: painelSelecionado.fabricante, modelo: painelSelecionado.modelo, quantidade: quantidadePaineis, precoUnitarioBrl: painelSelecionado.precoBrl, subtotalBrl: custoPaineisPreview, dataConsulta: painelSelecionado.dataConsulta, fonte: painelSelecionado.fonte, origem: 'dataset' }] : []),
+    ...(inversorSelecionado ? [{ tipo: 'Inversor', fabricante: inversorSelecionado.fabricante, modelo: inversorSelecionado.modelo, quantidade: 1, precoUnitarioBrl: inversorSelecionado.precoBrl, subtotalBrl: inversorSelecionado.precoBrl, dataConsulta: inversorSelecionado.dataConsulta, fonte: inversorSelecionado.fonte, origem: 'dataset' }] : []),
+    ...(comArmazenamento && bateriaSelecionada && quantidadeBaterias ? [{ tipo: 'Baterias', fabricante: bateriaSelecionada.fabricante, modelo: bateriaSelecionada.modelo, quantidade: quantidadeBaterias, precoUnitarioBrl: bateriaSelecionada.precoBrl, subtotalBrl: custoBateriasPreview, dataConsulta: bateriaSelecionada.dataConsulta, fonte: bateriaSelecionada.fonte, origem: 'dataset' }] : []),
+    ...custosExtrasDefinidos.map(([tipo, chave]) => ({ tipo, fabricante: 'Informado pelo usuário', modelo: 'Conforme proposta/premissa informada', quantidade: 1, precoUnitarioBrl: Number(custosExtras[chave]) || 0, subtotalBrl: Number(custosExtras[chave]) || 0, fonte: custosExtras.fontesCustosComplementares || 'Valor informado pelo usuário; sem fonte adicional registrada.', origem: 'informado' }))
+  ];
+  const totalOrcamentoPreview = itensOrcamentoPreview.reduce((soma, item) => soma + item.subtotalBrl, 0);
+  const fonteTecnicaBateria = bateriaSelecionada?.fonte?.match(/https?:\/\/[^\s|,;]+/)?.[0];
 
   useEffect(() => {
     if (!painelSelecionado || !quantidadePaineis) {
@@ -224,6 +260,41 @@ export default function Dimensionamento() {
     });
     return () => { ativo = false; };
   }, [painelSelecionado?.id, quantidadePaineis]);
+
+  function handleAlternativaArmazenamento(valor) {
+    const proximaAlternativaComBaterias = valor === 'com';
+    setComArmazenamento(proximaAlternativaComBaterias);
+    setErro('');
+    setErroAutonomia('');
+
+    // Se a troca tornar o inversor atual incompatível, limpa a seleção para evitar
+    // que o usuário tente salvar uma combinação inválida ou veja uma opção fantasma.
+    if (proximaAlternativaComBaterias && inversorId) {
+      const inversorAtual = inversoresCompativeis.find((i) => i.id === Number(inversorId));
+      const bateriaAtual = dadosBaterias.baterias.find((b) => b.id === Number(bateriaId));
+      const nomeBateria = bateriaAtual ? `${bateriaAtual.fabricante} ${bateriaAtual.modelo}` : '';
+      const compativel = Boolean(
+        inversorAtual && bateriaAtual && inversorAtual.suportaBateria &&
+        inversorAtual.bateriasCompativeis.some((nome) => nomeBateria.includes(nome))
+      );
+      if (!compativel) setInversorId('');
+    }
+  }
+
+  function handleBateriaChange(valor) {
+    setBateriaId(valor);
+    setErro('');
+    if (!comArmazenamento || !inversorId) return;
+
+    const inversorAtual = inversoresCompativeis.find((i) => i.id === Number(inversorId));
+    const bateria = dadosBaterias.baterias.find((b) => b.id === Number(valor));
+    const nomeBateria = bateria ? `${bateria.fabricante} ${bateria.modelo}` : '';
+    const compativel = Boolean(
+      inversorAtual && bateria && inversorAtual.suportaBateria &&
+      inversorAtual.bateriasCompativeis.some((nome) => nomeBateria.includes(nome))
+    );
+    if (!compativel) setInversorId('');
+  }
 
   function handleAutonomia(valor) {
     setAutonomia(valor);
@@ -490,15 +561,17 @@ export default function Dimensionamento() {
             <select
               id="armazenamento"
               value={comArmazenamento ? 'com' : 'sem'}
-              onChange={(e) => {
-                setComArmazenamento(e.target.value === 'com');
-                setErroAutonomia('');
-              }}
+              onChange={(e) => handleAlternativaArmazenamento(e.target.value)}
             >
               <option value="sem">Sem baterias</option>
               <option value="com">Com baterias</option>
             </select>
           </div>
+          <p className="imovel-meta">
+            {comArmazenamento
+              ? 'Alternativa com baterias: autonomia, quantidade e custo do armazenamento são calculados e incluídos no orçamento. A potência fotovoltaica continua dimensionada pelo consumo, HSP e PR informados.'
+              : 'Alternativa sem baterias: não há capacidade/autonomia de armazenamento e nenhum custo de bateria entra no orçamento.'}
+          </p>
           {comArmazenamento ? (
             <>
               <div className="field">
@@ -517,34 +590,31 @@ export default function Dimensionamento() {
               </div>
               <div className="field">
                 <label htmlFor="bateria">Bateria</label>
-                <select id="bateria" value={bateriaId} onChange={(e) => setBateriaId(e.target.value)} required>
+                <select id="bateria" value={bateriaId} onChange={(e) => handleBateriaChange(e.target.value)} required>
                   <option value="">Selecione uma bateria</option>
                   {dadosBaterias.baterias.map((b) => (
                     <option key={b.id} value={b.id}>
-                      {b.fabricante} {b.modelo} — {b.capacidadeKwh} kWh, {b.tensaoV} V
+                      {b.fabricante} {b.modelo} — {b.capacidadeKwh} kWh, {b.capacidadeAh} Ah, {b.tensaoV} V
                     </option>
                   ))}
                 </select>
                 {bateriasErro && <div className="field-error">{bateriasErro}</div>}
                 {bateriaSelecionada && (
                   <p className="imovel-meta">
-                    DoD {bateriaSelecionada.dodPercentual}%; R$ {Number(bateriaSelecionada.precoBrl).toFixed(2).replace('.', ',')} por unidade.
-                    {' '}Fonte técnica e preço consultados em {bateriaSelecionada.dataConsulta}.
+                    Tecnologia {bateriaSelecionada.tecnologia}; {bateriaSelecionada.capacidadeAh} Ah / {bateriaSelecionada.capacidadeKwh} kWh nominais; tensão {bateriaSelecionada.tensaoV} V; DoD {bateriaSelecionada.dodPercentual}%; vida em ciclos: {formatarCiclos(bateriaSelecionada)}; preço unitário {formatarMoeda(bateriaSelecionada.precoBrl)}.
+                    {' '}Consulta de preço: {bateriaSelecionada.dataConsultaPreco || bateriaSelecionada.dataConsulta}; dados técnicos consultados em {bateriaSelecionada.dataConsultaTecnica || bateriaSelecionada.dataConsulta}.{' '}
+                    {fonteTecnicaBateria && <a href={fonteTecnicaBateria} target="_blank" rel="noreferrer">Abrir fonte técnica</a>}.
                   </p>
                 )}
               </div>
               {capacidadeBateriaNecessaria !== null && (
                 <div className="imovel-meta">
                   <p>
-                    PB13: E_d = {(consumoEfetivo / 30).toFixed(2)} kWh/dia; E_autonomia = {energiaAutonomia.toFixed(2)} kWh;
-                    {' '}C_bat estimada = {capacidadeBateriaNecessaria.toFixed(2)} kWh nominais
-                    {' '}(DoD padrão {dadosBaterias.padroes.dod * 100}% e eficiência {dadosBaterias.padroes.eficiencia * 100}%).
+                    <strong>PB11 — memória do dimensionamento:</strong> E_d = C_m / 30 = {(consumoEfetivo / 30).toFixed(2)} kWh/dia; E_aut = E_d × (autonomia / 24) = {energiaAutonomia.toFixed(2)} kWh; C_bat = E_aut / (DoD × η_bat) = {capacidadeBateriaNecessaria.toFixed(2)} kWh nominais. Parâmetros usados: DoD {dodAplicadoBateria * 100}% e eficiência da bateria {dadosBaterias.padroes.eficiencia * 100}%.
                   </p>
                   {bateriaSelecionada && quantidadeBaterias !== null && (
                     <p>
-                      PB15: {quantidadeBaterias} × {bateriaSelecionada.modelo}; capacidade instalada =
-                      {' '}{(quantidadeBaterias * bateriaSelecionada.capacidadeKwh).toFixed(2)} kWh nominais
-                      {' '}({(quantidadeBaterias * capacidadeUtilUnitaria).toFixed(2)} kWh úteis).
+                      Quantidade = teto(C_bat / C_unidade) = {quantidadeBaterias} × {bateriaSelecionada.fabricante} {bateriaSelecionada.modelo}; capacidade total instalada = {(quantidadeBaterias * bateriaSelecionada.capacidadeKwh).toFixed(2)} kWh nominais ({(quantidadeBaterias * capacidadeUtilUnitaria).toFixed(2)} kWh úteis). Subtotal das baterias: {formatarMoeda(custoBateriasPreview)}.
                     </p>
                   )}
                 </div>
@@ -641,8 +711,31 @@ export default function Dimensionamento() {
             <input id="fonteCustos" value={custosExtras.fontesCustosComplementares} onChange={(e) => setCustosExtras({ ...custosExtras, fontesCustosComplementares: e.target.value })} />
           </div>
           <div className="imovel-meta">
-            <p>PB17 — Equipamentos: módulos R$ {custoPaineisPreview.toFixed(2)} + inversor R$ {(inversorSelecionado?.precoBrl || 0).toFixed(2)} + baterias R$ {custoBateriasPreview.toFixed(2)} = R$ {custoEquipamentosPreview.toFixed(2)}.</p>
-            <p>PB18 — Total estimado: equipamentos R$ {custoEquipamentosPreview.toFixed(2)} + complementares R$ {custosExtrasPreview.toFixed(2)} = R$ {(custoEquipamentosPreview + custosExtrasPreview).toFixed(2)}.</p>
+            <p><strong>PB10 — Alternativa:</strong> {comArmazenamento ? `Com baterias${autonomiaValida ? `, autonomia de ${autonomiaNumero} h` : ''}` : 'Sem baterias'}.</p>
+            <p>Equipamentos: {formatarMoeda(custoEquipamentosPreview)} · custos complementares: {formatarMoeda(custosExtrasPreview)}.</p>
+          </div>
+          <h3 className="section-title">Orçamento detalhado (PB13)</h3>
+          <div className="table-wrap">
+            <table className="table">
+              <thead><tr><th>Equipamento/serviço</th><th>Fabricante / modelo</th><th>Qtd.</th><th>Preço unitário</th><th>Subtotal</th><th>Fonte / data</th></tr></thead>
+              <tbody>
+                {itensOrcamentoPreview.map((item, indice) => (
+                  <tr key={`${item.tipo}-${indice}`}>
+                    <td>{item.tipo}</td>
+                    <td>{item.fabricante} · {item.modelo}</td>
+                    <td className="metric">{item.quantidade}</td>
+                    <td className="metric">{formatarMoeda(item.precoUnitarioBrl)}</td>
+                    <td className="metric">{formatarMoeda(item.subtotalBrl)}</td>
+                    <td>
+                      {item.origem === 'dataset' ? (
+                        <>{item.dataConsulta ? `Dataset/preço · ${item.dataConsulta}` : 'Dataset'}{item.dataConsultaTecnica ? `; dados técnicos · ${item.dataConsultaTecnica}` : ''}{primeiroLink(item.fonte) && <> · <a href={primeiroLink(item.fonte)} target="_blank" rel="noreferrer">Fonte</a></>}</>
+                      ) : (item.fonte || 'Valor informado pelo usuário')}
+                    </td>
+                  </tr>
+                ))}
+                <tr><th colSpan="4">Total estimado</th><td className="metric"><strong>{formatarMoeda(totalOrcamentoPreview)}</strong></td><td> </td></tr>
+              </tbody>
+            </table>
           </div>
 
           <button
@@ -731,29 +824,56 @@ export default function Dimensionamento() {
               {cenario.armazenamento && (
                 <>
                   <tr>
-                    <th>Capacidade necessária estimada</th>
+                    <th>Energia necessária para a autonomia</th>
+                    <td className="metric">{((Number(cenario.consumoReferenciaKwh) / 30) * (Number(cenario.autonomiaHoras) / 24)).toFixed(2)} kWh</td>
+                  </tr>
+                  <tr>
+                    <th>Capacidade nominal calculada (C_bat)</th>
                     <td className="metric">{cenario.capacidadeBateriaNecessariaKwh ?? '—'} kWh</td>
                   </tr>
                   <tr>
                     <th>Bateria selecionada</th>
                     <td>
-                      {dadosBaterias.baterias.find((b) => b.id === cenario.bateriaId)
-                        ? `${dadosBaterias.baterias.find((b) => b.id === cenario.bateriaId).fabricante} ${dadosBaterias.baterias.find((b) => b.id === cenario.bateriaId).modelo}`
+                      {cenario.bateriaSelecionada
+                        ? `${cenario.bateriaSelecionada.fabricante} ${cenario.bateriaSelecionada.modelo} — ${cenario.bateriaSelecionada.capacidadeAh} Ah, ${cenario.bateriaSelecionada.capacidadeKwh} kWh, ${cenario.bateriaSelecionada.dodPercentual}% DoD, vida em ciclos ${formatarCiclos(cenario.bateriaSelecionada)}`
                         : 'Seleção pendente'}
                     </td>
                   </tr>
                   <tr>
-                    <th>Quantidade</th>
+                    <th>Quantidade necessária</th>
                     <td className="metric">{cenario.quantidadeBaterias ?? '—'}</td>
                   </tr>
                   <tr>
-                    <th>Capacidade instalada</th>
-                    <td className="metric">{cenario.capacidadeBateriaInstaladaKwh ?? '—'} kWh</td>
+                    <th>Capacidade total instalada</th>
+                    <td className="metric">{cenario.capacidadeBateriaInstaladaKwh ?? '—'} kWh nominais</td>
                   </tr>
                 </>
               )}
             </tbody>
           </table>
+          <h3 className="section-title">Orçamento detalhado (PB13)</h3>
+          <div className="table-wrap">
+            <table className="table">
+              <thead><tr><th>Equipamento/serviço</th><th>Fabricante / modelo</th><th>Qtd.</th><th>Preço unitário</th><th>Subtotal</th><th>Fonte / data</th></tr></thead>
+              <tbody>
+                {(cenario.itensOrcamento || []).map((item, indice) => (
+                  <tr key={`${item.tipo}-${indice}`}>
+                    <td>{item.tipo}</td>
+                    <td>{item.fabricante} · {item.modelo}</td>
+                    <td className="metric">{item.quantidade}</td>
+                    <td className="metric">{formatarMoeda(item.precoUnitarioBrl)}</td>
+                    <td className="metric">{formatarMoeda(item.subtotalBrl)}</td>
+                    <td>
+                      {item.origem === 'dataset' ? (
+                        <>{item.dataConsulta ? `Dataset/preço · ${item.dataConsulta}` : 'Dataset'}{item.dataConsultaTecnica ? `; dados técnicos · ${item.dataConsultaTecnica}` : ''}{primeiroLink(item.fonte) && <> · <a href={primeiroLink(item.fonte)} target="_blank" rel="noreferrer">Fonte</a></>}</>
+                      ) : (item.fonte || 'Valor informado pelo usuário')}
+                    </td>
+                  </tr>
+                ))}
+                <tr><th colSpan="4">Total estimado da proposta</th><td className="metric"><strong>{formatarMoeda(cenario.custoTotalBrl)}</strong></td><td> </td></tr>
+              </tbody>
+            </table>
+          </div>
           <button className="btn-secondary btn-inline" onClick={carregarLogs}>
             {logs ? 'Atualizar memória de cálculo' : 'Ver memória de cálculo'}
           </button>

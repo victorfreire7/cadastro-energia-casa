@@ -50,7 +50,7 @@ test('custo de bateria: zero sem armazenamento, valor calculado com armazenament
   assert.strictEqual(custoBateria(true), 0);
 });
 
-test('PB13: calcula consumo diário, energia de autonomia e capacidade nominal com padrões documentados', () => {
+test('PB11: calcula consumo diário, energia de autonomia e capacidade nominal com padrões documentados', () => {
   assert.strictEqual(DOD_PADRAO, 0.8);
   assert.strictEqual(EFICIENCIA_BATERIA_PADRAO, 0.9);
   const r = calcularCapacidadeBateria(300, 24);
@@ -63,13 +63,13 @@ test('PB13: calcula consumo diário, energia de autonomia e capacidade nominal c
   });
 });
 
-test('PB13: valida entradas e rejeita DoD ou eficiência zero', () => {
+test('PB11: valida entradas e rejeita DoD ou eficiência zero', () => {
   for (const entrada of [[0, 24], [300, 0], [300, 24, 0], [300, 24, 0.8, 0], [300, 73]]) {
     assert.ok(calcularCapacidadeBateria(...entrada).erro, `deveria rejeitar ${entrada}`);
   }
 });
 
-test('PB13: log registra fórmula, parâmetros, resultado e unidade', () => {
+test('PB11: log registra fórmula, parâmetros, resultado e unidade', () => {
   const calculo = calcularCapacidadeBateria(300, 24);
   const log = montarLogCapacidadeBateria(300, 24, calculo);
   assert.strictEqual(log.etapa, 'CAPACIDADE_BATERIA');
