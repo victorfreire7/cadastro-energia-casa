@@ -28,6 +28,7 @@ model Imovel {
   eletrodomesticos  Eletrodomestico[]
   consumoHistorico  ConsumoHistorico[]
   cenarios          CenarioDimensionamento[]
+  projetos          Projeto[]
 }
 
 model Eletrodomestico {
@@ -61,6 +62,32 @@ model CenarioDimensionamento {
   hspOrigem               String?
   hspFonte                String?
   energiaMensalFvKwh      Float?
+
+  armazenamento                 Boolean @default(false)
+  autonomiaHoras                Float?
+  custoBateriaBrl               Float   @default(0)
+  capacidadeBateriaNecessariaKwh Float?
+  bateriaId                     Int?
+  quantidadeBaterias            Int?
+  capacidadeBateriaInstaladaKwh Float?
+
+  painelId                Int?
+  quantidadePaineis       Int?
+  potenciaSistemaKwp      Float?
+  potenciaInstaladaKwp    Float?
+  eficienciaSistema       Float    @default(0.75)
+  diasReferencia          Int      @default(30)
+  inversorId              Int?
+  custoPaineisBrl         Float    @default(0)
+  custoInversorBrl        Float    @default(0)
+  custoEstruturaBrl       Float    @default(0)
+  custoCabeamentoBrl      Float    @default(0)
+  custoProtecoesBrl       Float    @default(0)
+  custoInstalacaoBrl      Float    @default(0)
+  fontesCustosComplementares String?
+  custoEquipamentosBrl    Float    @default(0)
+  custoTotalBrl           Float    @default(0)
+
   logs                    CenarioCalculoLog[]
   createdAt               DateTime @default(now())
   updatedAt               DateTime @updatedAt
@@ -76,4 +103,20 @@ model CenarioCalculoLog {
   resultado   Float
   unidade     String
   createdAt   DateTime               @default(now())
+}
+
+// PB20 — dimensionamento salvo: guarda o que o usuário informou (entrada) e tudo o que o sistema
+// calculou (resultado: residência, configuração FV, equipamentos, baterias, orçamento, economia, payback)
+// no momento do cálculo, com os preços dos datasets daquela data.
+model Projeto {
+  id                   Int      @id @default(autoincrement())
+  imovelId             Int
+  imovel               Imovel   @relation(fields: [imovelId], references: [id])
+  titulo               String
+  alternativa          String
+  entrada              Json
+  resultado            Json
+  investimentoTotalBrl Float
+  economiaAnualBrl     Float
+  createdAt            DateTime @default(now())
 }

@@ -137,3 +137,29 @@ Backlog: `Sprint_3_Product_Backlog_Final.pdf` (PB01–PB21). Os códigos abaixo 
 Testes: `cd backend && npm test` (`tests/comparacao.test.js`, `tests/economia.test.js`, `tests/payback.test.js`, `tests/proposta.test.js`).
 
 **Dependência:** a PB14 compara resultados calculados pelas PB04–PB13 (potência FV, módulos, inversor, geração, atendimento, baterias, orçamento). Esses cálculos ainda não existem no código; a rota de comparação recebe os dois resultados prontos e não fixa nenhum equipamento ou preço.
+
+
+## Sprint 3 — PB18 a PB21 (validação, interface, persistência e proposta) → Implementação
+
+Fecha o fluxo completo da Sprint 3 pela interface: **residência → consumo → HSP/PR → módulos → inversor → geração → baterias (opcional) → orçamento → economia → payback → proposta**. O motor `services/projeto.js` encadeia os serviços das PB04–PB17 (nenhum equipamento ou preço fixo no código: tudo vem dos CSVs em `backend/data/`).
+
+| PB | Task | Onde foi atingido |
+|---|---|---|
+| **PB18** | Tratar consumo negativo, HSP ≤ 0, PR inválido, quantidades negativas e campos obrigatórios ausentes | `backend/services/validacao.js` (`validarEntradaProjeto`, `lerNumero`): coleta **todos** os problemas de uma vez, com mensagem em português (ex.: "A HSP deve ser maior que zero.", "O PR deve estar entre 0 e 1") |
+| | Divisão por zero | `dividirSeguro` (devolve `null`, nunca `Infinity`/`NaN`) e razão CC/CA protegida em `services/projeto.js` |
+| | Equipamentos incompatíveis | `services/projeto.js` (`avaliarInversor`, `resolverInversor`): tensão, potência, corrente, nº de MPPT, inversor sem suporte a baterias e bateria fora da lista do inversor, cada um com o motivo na mensagem (`mensagemIncompatibilidade`) |
+| | Mensagens compreensíveis | Controller devolve `400 { message, erros[] }`; `pages/Projeto.jsx` exibe todos os erros acima do formulário |
+| **PB19** | Fluxo completo pela interface, sem editar código, datasets ou fazer contas externas | `frontend/src/pages/Projeto.jsx` (rota `/projeto/:imovelId?`, botões no Dashboard e no detalhe do imóvel); `GET /imoveis/:id/projetos/contexto` traz consumo, potência instalada, localidade, HSP da UF e os datasets de módulos/baterias; `POST .../projetos/pre-dimensionamento` lista os inversores com o veredito de compatibilidade; `POST .../projetos/calcular` devolve proposta, comparação e memória de cálculo |
+| | Com ou sem baterias (PB10) e comparação (PB14) | Marcar "Incluir armazenamento" calcula os dois cenários e mostra a tabela comparativa, o payback de cada um e uma leitura com os números do próprio sistema |
+| **PB20** | Salvar residência, configuração FV, equipamentos, baterias, orçamento e resultados econômicos | Model `Projeto` (`schema.prisma`) + migration `20261023120000_projeto_persistencia`; guarda `entrada` e `resultado` (JSON) com os preços e fontes dos datasets daquela data; `POST /imoveis/:id/projetos` (salvar), `GET /imoveis/:id/projetos` (listar), `GET .../:projetoId` (recuperar), `DELETE .../:projetoId`; só o dono acessa; excluir imóvel remove os projetos |
+| **PB21** | Gerar proposta para apresentar ao cliente | `GET /imoveis/:id/projetos/:projetoId/proposta?formato=html` reaproveita `renderizarHtml` (PB17); na tela: "Ver proposta para o cliente" e "Baixar proposta (HTML)" (imprimir → PDF pelo navegador) |
+
+Testes: `cd backend && npm test` (`tests/validacao.test.js`, `tests/projeto.test.js`).
+
+**Ajustes feitos junto:**
+- `services/dimensionamento.js` agora exporta `arredondar`. `armazenamento.js` e `baterias.js` já a importavam, mas ela não era exportada (as funções de bateria quebravam com `arredondar is not a function`).
+- `schema.prisma` estava **sem as colunas** que as migrations da Sprint 3 já criaram em `CenarioDimensionamento` (baterias, painel, inversor, custos). Elas foram adicionadas ao schema para o próximo `prisma migrate dev` não gerar uma migration apagando essas colunas.
+
+**Após puxar estas mudanças:** `cd backend && npx prisma migrate dev` (aplica a migration do `Projeto`) e `npx prisma generate`.
+
+**Limitações assumidas** (para a defesa): arranjo das strings simplificado (Voc a 25 °C, sem correção de temperatura, uma string por MPPT); sem juros, reajuste tarifário, degradação ou crédito de excedente na economia; HSP por UF é média anual aproximada (conferir no CRESESB).

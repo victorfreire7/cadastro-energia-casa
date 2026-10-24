@@ -155,6 +155,7 @@ module.exports = {
   PERCENTUAL_MAX,
   vazio,
   converterNumero,
+  arredondar,
   validarPercentual,
   validarConsumoManual,
   validarLocalidade,

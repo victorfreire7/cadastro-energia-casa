@@ -176,6 +176,9 @@ export default function ImovelDetail() {
           <Link className="btn-primary btn-inline" to={`/dimensionamento/novo/${imovel.id}`}>
             ☀ Dimensionar sistema solar
           </Link>
+          <Link className="btn-secondary btn-inline" to={`/projeto/${imovel.id}`}>
+            📄 Projeto completo e proposta
+          </Link>
         </>
       )}
 

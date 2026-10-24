@@ -46,6 +46,9 @@ export default function Dashboard() {
       <Link className="btn-secondary btn-inline" to="/dimensionamento/novo">
         ☀ Dimensionar sistema solar
       </Link>
+      <Link className="btn-secondary btn-inline" to="/projeto">
+        📄 Projeto completo e proposta
+      </Link>
 
       {erro && <div className="error-message">{erro}</div>}
 

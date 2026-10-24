@@ -8,6 +8,7 @@ import Dashboard from './pages/Dashboard.jsx';
 import ImovelForm from './pages/ImovelForm.jsx';
 import ImovelDetail from './pages/ImovelDetail.jsx';
 import Dimensionamento from './pages/Dimensionamento.jsx';
+import Projeto from './pages/Projeto.jsx';
 
 export default function App() {
   return (
@@ -46,6 +47,14 @@ export default function App() {
             element={
               <PrivateRoute>
                 <Dimensionamento />
+              </PrivateRoute>
+            }
+          />
+          <Route
+            path="/projeto/:imovelId?"
+            element={
+              <PrivateRoute>
+                <Projeto />
               </PrivateRoute>
             }
           />
