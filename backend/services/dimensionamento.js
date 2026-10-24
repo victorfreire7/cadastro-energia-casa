@@ -153,7 +153,6 @@ module.exports = {
   PERCENTUAL_PADRAO,
   PERCENTUAL_MIN,
   PERCENTUAL_MAX,
-  arredondar,
   vazio,
   converterNumero,
   validarPercentual,

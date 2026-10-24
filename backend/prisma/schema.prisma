@@ -61,29 +61,6 @@ model CenarioDimensionamento {
   hspOrigem               String?
   hspFonte                String?
   energiaMensalFvKwh      Float?
-  armazenamento           Boolean  @default(false)
-  autonomiaHoras          Float?
-  custoBateriaBrl         Float    @default(0)
-  capacidadeBateriaNecessariaKwh Float?
-  bateriaId               Int?
-  quantidadeBaterias      Int?
-  capacidadeBateriaInstaladaKwh Float?
-  painelId                 Int?
-  quantidadePaineis        Int?
-  potenciaSistemaKwp       Float?
-  potenciaInstaladaKwp     Float?
-  eficienciaSistema        Float    @default(0.75)
-  diasReferencia           Int      @default(30)
-  inversorId               Int?
-  custoPaineisBrl          Float    @default(0)
-  custoInversorBrl         Float    @default(0)
-  custoEstruturaBrl        Float    @default(0)
-  custoCabeamentoBrl       Float    @default(0)
-  custoProtecoesBrl        Float    @default(0)
-  custoInstalacaoBrl       Float    @default(0)
-  fontesCustosComplementares String?
-  custoEquipamentosBrl     Float    @default(0)
-  custoTotalBrl            Float    @default(0)
   logs                    CenarioCalculoLog[]
   createdAt               DateTime @default(now())
   updatedAt               DateTime @updatedAt

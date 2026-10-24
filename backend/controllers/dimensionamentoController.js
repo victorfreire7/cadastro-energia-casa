@@ -13,23 +13,6 @@ const {
   montarLogEnergiaFv
 } = require('../services/dimensionamento');
 const { HSP_MIN, HSP_MAX, tabelaHsp, obterHspPorUf, resolverHsp } = require('../services/hsp');
-const {
-  resolverArmazenamento,
-  custoBateria,
-  DOD_PADRAO,
-  EFICIENCIA_BATERIA_PADRAO,
-  calcularCapacidadeBateria,
-  montarLogCapacidadeBateria
-} = require('../services/armazenamento');
-const {
-  bateriasDisponiveis,
-  selecionarBateria,
-  dimensionarBaterias,
-  montarLogSelecaoBateria
-} = require('../services/baterias');
-const { paineisDisponiveis, dimensionarSistema } = require('../services/paineis');
-const { inversoresDisponiveis, selecionarInversoresCompativeis, escolherInversor } = require('../services/inversores');
-const { calcularGeracaoFotovoltaica } = require('../services/geracaoFotovoltaica');
 
 async function buscarImovelDoUsuario(id, usuarioId) {
   return prisma.imovel.findFirst({
@@ -57,313 +40,6 @@ async function obterSugestao(imovel) {
 function hspPublico(registro) {
   if (!registro) return null;
   return { uf: registro.uf, regiao: registro.regiao, hsp: registro.hsp, fonte: registro.fonte };
-}
-
-function bateriaPublica(bateria) {
-  return {
-    id: bateria.id,
-    fabricante: bateria.fabricante,
-    modelo: bateria.modelo,
-    tecnologia: bateria.tecnologia,
-    capacidadeAh: bateria.capacidadeAh,
-    capacidadeKwh: bateria.capacidadeKwh,
-    dod: bateria.dod,
-    dodPercentual: bateria.dodPercentual,
-    tensaoV: bateria.tensaoV,
-    ciclos: bateria.ciclos,
-    ciclosCondicao: bateria.ciclosCondicao,
-    ciclosTexto: bateria.ciclosTexto,
-    precoBrl: bateria.precoBrl,
-    dataConsulta: bateria.dataConsulta,
-    dataConsultaPreco: bateria.dataConsultaPreco,
-    dataConsultaTecnica: bateria.dataConsultaTecnica,
-    fonte: bateria.fonte
-  };
-}
-
-function consultarBaterias(req, res) {
-  res.json({
-    padroes: { dod: DOD_PADRAO, eficiencia: EFICIENCIA_BATERIA_PADRAO },
-    baterias: bateriasDisponiveis().map(bateriaPublica)
-  });
-}
-
-function consultarPaineis(req, res) {
-  res.json({ diasReferencia: 30, eficienciaPadrao: 0.75, paineis: paineisDisponiveis() });
-}
-
-function consultarInversores(req, res) {
-  res.json({ inversores: inversoresDisponiveis() });
-}
-
-function consultarInversoresCompativeis(req, res) {
-  const painel = paineisDisponiveis().find((item) => item.id === Number(req.query.painelId));
-  const quantidade = Number(req.query.quantidade);
-  if (!painel) return res.status(400).json({ message: 'selecione um módulo válido' });
-  if (!Number.isInteger(quantidade) || quantidade <= 0) {
-    return res.status(400).json({ message: 'quantidade de módulos deve ser um inteiro maior que zero' });
-  }
-
-  // Esta etapa avalia uma string com todos os módulos em série.
-  const arranjo = {
-    quantidadeModulos: quantidade,
-    potenciaInstaladaKwp: Number(((painel.potenciaWp * quantidade) / 1000).toFixed(3)),
-    tensaoStringVocV: Number((painel.vocV * quantidade).toFixed(2)),
-    tensaoStringMppV: Number((painel.vmpV * quantidade).toFixed(2)),
-    correnteModuloA: painel.correnteA,
-    configuracao: 'todos os módulos em uma string série'
-  };
-  const resultado = selecionarInversoresCompativeis(arranjo);
-  res.json({
-    arranjo,
-    compativeis: resultado.compativeis || [],
-    rejeitados: resultado.rejeitados || [],
-    ...(resultado.erro && { message: resultado.erro })
-  });
-}
-
-function arredondarMoeda(valor) {
-  const numero = Number(valor);
-  return Number.isFinite(numero) ? Number(numero.toFixed(2)) : 0;
-}
-
-// PB13 — monta os itens com os subtotais persistidos no cenário e metadados dos datasets.
-// Assim o orçamento exibido mantém os preços históricos usados no cálculo, mesmo se o catálogo mudar.
-function montarItensOrcamento(cenario) {
-  const itens = [];
-  const custoPainel = arredondarMoeda(cenario.custoPaineisBrl);
-  const quantidadePaineis = Number(cenario.quantidadePaineis) || 0;
-  if (cenario.painelId != null && quantidadePaineis > 0) {
-    const painel = paineisDisponiveis().find((item) => item.id === Number(cenario.painelId));
-    itens.push({
-      tipo: 'Módulos fotovoltaicos',
-      fabricante: painel?.fabricante || 'Catálogo de módulos',
-      modelo: painel?.modelo || `ID ${cenario.painelId}`,
-      quantidade: quantidadePaineis,
-      precoUnitarioBrl: arredondarMoeda(custoPainel / quantidadePaineis),
-      subtotalBrl: custoPainel,
-      dataConsulta: painel?.dataConsulta || null,
-      fonte: painel?.fonte || null,
-      origem: 'dataset'
-    });
-  }
-
-  if (cenario.inversorId != null) {
-    const inversor = inversoresDisponiveis().find((item) => item.id === Number(cenario.inversorId));
-    const subtotalBrl = arredondarMoeda(cenario.custoInversorBrl);
-    itens.push({
-      tipo: 'Inversor',
-      fabricante: inversor?.fabricante || 'Catálogo de inversores',
-      modelo: inversor?.modelo || `ID ${cenario.inversorId}`,
-      quantidade: 1,
-      precoUnitarioBrl: subtotalBrl,
-      subtotalBrl,
-      dataConsulta: inversor?.dataConsulta || null,
-      fonte: inversor?.fonte || null,
-      origem: 'dataset'
-    });
-  }
-
-  const quantidadeBaterias = Number(cenario.quantidadeBaterias) || 0;
-  if (cenario.armazenamento && cenario.bateriaId != null && quantidadeBaterias > 0) {
-    const bateria = bateriasDisponiveis().find((item) => item.id === Number(cenario.bateriaId));
-    const subtotalBrl = arredondarMoeda(cenario.custoBateriaBrl);
-    itens.push({
-      tipo: 'Baterias',
-      fabricante: bateria?.fabricante || 'Catálogo de baterias',
-      modelo: bateria?.modelo || `ID ${cenario.bateriaId}`,
-      quantidade: quantidadeBaterias,
-      precoUnitarioBrl: arredondarMoeda(subtotalBrl / quantidadeBaterias),
-      subtotalBrl,
-      dataConsulta: bateria?.dataConsulta || null,
-      dataConsultaTecnica: bateria?.dataConsultaTecnica || null,
-      fonte: bateria?.fonte || null,
-      origem: 'dataset'
-    });
-  }
-
-  const complementares = [
-    ['Estrutura de fixação', 'custoEstruturaBrl'],
-    ['Cabeamento', 'custoCabeamentoBrl'],
-    ['Proteções elétricas', 'custoProtecoesBrl'],
-    ['Instalação', 'custoInstalacaoBrl']
-  ];
-  for (const [tipo, campo] of complementares) {
-    const subtotalBrl = arredondarMoeda(cenario[campo]);
-    itens.push({
-      tipo,
-      fabricante: 'Informado pelo usuário',
-      modelo: 'Conforme proposta/premissa informada',
-      quantidade: 1,
-      precoUnitarioBrl: subtotalBrl,
-      subtotalBrl,
-      dataConsulta: null,
-      fonte: cenario.fontesCustosComplementares || 'Valor informado no formulário; sem fonte adicional registrada.',
-      origem: 'informado'
-    });
-  }
-
-  return itens;
-}
-
-function adicionarResultadosDeGeracao(cenario) {
-  if (!cenario) return cenario;
-  let resultadoFinal = cenario;
-  if (cenario.potenciaInstaladaKwp && cenario.hspKwhM2Dia && cenario.eficienciaSistema) {
-    const resultado = calcularGeracaoFotovoltaica({
-      potenciaInstaladaKwp: cenario.potenciaInstaladaKwp,
-      hsp: cenario.hspKwhM2Dia,
-      pr: cenario.eficienciaSistema,
-      consumoMensalKwh: cenario.consumoReferenciaKwh
-    });
-    if (!resultado.erro) resultadoFinal = { ...cenario, ...resultado };
-  }
-  const bateria = cenario.bateriaId == null
-    ? null
-    : bateriasDisponiveis().find((item) => item.id === Number(cenario.bateriaId));
-  const itensOrcamento = montarItensOrcamento(cenario);
-  const totalItensOrcamentoBrl = arredondarMoeda(itensOrcamento.reduce((soma, item) => soma + item.subtotalBrl, 0));
-  return {
-    ...resultadoFinal,
-    bateriaSelecionada: bateria ? bateriaPublica(bateria) : null,
-    itensOrcamento,
-    totalItensOrcamentoBrl
-  };
-}
-
-function resolverOrcamento(body, energiaMensalKwh, hsp, armazenamento, bateriaId, defaults = {}) {
-  const painelId = body.painelId ?? defaults.painelId;
-  const inversorId = body.inversorId ?? defaults.inversorId;
-  const eficienciaSistema = body.eficienciaSistema === undefined ? (defaults.eficienciaSistema ?? 0.75) : Number(body.eficienciaSistema);
-  const diasReferencia = body.diasReferencia === undefined ? (defaults.diasReferencia ?? 30) : Number(body.diasReferencia);
-  const custos = {};
-  for (const chave of ['custoEstruturaBrl', 'custoCabeamentoBrl', 'custoProtecoesBrl', 'custoInstalacaoBrl']) {
-    const valor = body[chave] === undefined ? (defaults[chave] ?? 0) : Number(body[chave]);
-    if (!Number.isFinite(valor) || valor < 0) return { erro: `${chave} deve ser um número igual ou maior que zero` };
-    custos[chave] = Number(valor.toFixed(2));
-  }
-  if (!Number.isFinite(eficienciaSistema) || eficienciaSistema <= 0 || eficienciaSistema > 1) return { erro: 'eficienciaSistema deve estar entre 0 e 1' };
-  if (!Number.isInteger(diasReferencia) || diasReferencia < 1 || diasReferencia > 31) return { erro: 'diasReferencia deve estar entre 1 e 31' };
-
-  let painel = null;
-  let inversor = null;
-  let custoPaineisBrl = 0;
-  let quantidadePaineis = null;
-  let potenciaSistemaKwp = null;
-  let potenciaInstaladaKwp = null;
-  let log = null;
-  const temDimensionamento = painelId !== undefined && painelId !== null && inversorId !== undefined && inversorId !== null;
-  if (temDimensionamento) {
-    const potencia = dimensionarSistema({ energiaMensalKwh, hsp, eficiencia: eficienciaSistema, diasReferencia, painelId });
-    if (potencia.erro) return potencia;
-    painel = potencia.painel;
-    inversor = inversoresDisponiveis().find((item) => item.id === Number(inversorId));
-    if (!inversor) return { erro: 'inversor não encontrado' };
-    const entradaInversor = {
-      potenciaInstaladaKwp: potencia.potenciaInstaladaKwp,
-      tensaoStringVocV: painel.vocV * potencia.quantidade,
-      tensaoStringMppV: painel.vmpV * potencia.quantidade,
-      correnteModuloA: painel.correnteA
-    };
-    const validacaoInversor = escolherInversor(inversorId, entradaInversor);
-    if (validacaoInversor.erro) {
-      const alternativas = selecionarInversoresCompativeis(entradaInversor);
-      return {
-        erro: validacaoInversor.erro,
-        alternativas: (alternativas.compativeis || []).map(({ id, fabricante, modelo }) => ({ id, fabricante, modelo }))
-      };
-    }
-    if (armazenamento) {
-      const bateria = bateriasDisponiveis().find((item) => item.id === Number(bateriaId));
-      const familia = bateria ? `${bateria.fabricante} ${bateria.modelo}` : '';
-      if (!inversor.suportaBateria || !inversor.bateriasCompativeis.some((nome) => familia.includes(nome))) {
-        const alternativas = inversoresDisponiveis().filter((item) => item.suportaBateria && item.bateriasCompativeis.some((nome) => familia.includes(nome)));
-        return { erro: `inversor selecionado não suporta a bateria ${familia || 'selecionada'}`, alternativas: alternativas.map(({ id, fabricante, modelo }) => ({ id, fabricante, modelo })) };
-      }
-    }
-    custoPaineisBrl = potencia.custoPaineisBrl;
-    quantidadePaineis = potencia.quantidade;
-    potenciaSistemaKwp = potencia.potenciaNecessariaKwp;
-    potenciaInstaladaKwp = potencia.potenciaInstaladaKwp;
-    log = potencia.log;
-  } else if (
-    (painelId !== undefined && painelId !== null) ||
-    (inversorId !== undefined && inversorId !== null)
-  ) {
-    return { erro: 'selecione painel e inversor para dimensionar o sistema' };
-  }
-
-  const custoInversorBrl = inversor ? inversor.precoBrl : 0;
-  const custoBateriaBrl = armazenamento ? Number(defaults.custoBateriaBrl || 0) : 0;
-  const custoEquipamentosBrl = Number((custoPaineisBrl + custoInversorBrl + custoBateriaBrl).toFixed(2));
-  const custoTotalBrl = Number((custoEquipamentosBrl + Object.values(custos).reduce((a, b) => a + b, 0)).toFixed(2));
-  return { dados: { painelId: painel?.id ?? null, quantidadePaineis, potenciaSistemaKwp, potenciaInstaladaKwp, eficienciaSistema, diasReferencia, inversorId: inversor?.id ?? null, custoPaineisBrl, custoInversorBrl, ...custos, fontesCustosComplementares: body.fontesCustosComplementares ?? defaults.fontesCustosComplementares ?? null, custoEquipamentosBrl, custoTotalBrl }, painel, inversor, log };
-}
-
-function resolverDimensionamentoBateria({ consumoKwhMes, armazenamento, autonomiaHoras, bateriaId, permitirSemSelecao = false }) {
-  if (!armazenamento) {
-    return {
-      dados: {
-        capacidadeBateriaNecessariaKwh: null,
-        bateriaId: null,
-        quantidadeBaterias: 0,
-        capacidadeBateriaInstaladaKwh: 0,
-        custoBateriaBrl: 0
-      },
-      logs: []
-    };
-  }
-
-  let bateria = null;
-  if (!vazio(bateriaId)) {
-    const selecionada = selecionarBateria(bateriaId);
-    if (selecionada.erro) return selecionada;
-    bateria = selecionada.bateria;
-  } else if (!permitirSemSelecao) {
-    return { erro: 'bateriaId é obrigatória quando há armazenamento' };
-  }
-
-  // PB11 — usa o DoD do modelo selecionado; o padrão só se aplica a cenários legados sem modelo.
-  const dodAplicado = bateria?.dod ?? DOD_PADRAO;
-  const capacidade = calcularCapacidadeBateria(
-    consumoKwhMes,
-    autonomiaHoras,
-    dodAplicado,
-    EFICIENCIA_BATERIA_PADRAO
-  );
-  if (capacidade.erro) return capacidade;
-  const logCapacidade = montarLogCapacidadeBateria(consumoKwhMes, autonomiaHoras, capacidade);
-
-  if (!bateria) {
-    return {
-      dados: {
-        capacidadeBateriaNecessariaKwh: capacidade.capacidadeNecessariaKwh,
-        bateriaId: null,
-        quantidadeBaterias: null,
-        capacidadeBateriaInstaladaKwh: null,
-        custoBateriaBrl: 0
-      },
-      logs: [logCapacidade]
-    };
-  }
-
-  const energiaAutonomiaKwhExata = (consumoKwhMes / 30) * (autonomiaHoras / 24);
-  const dimensionamento = dimensionarBaterias({
-    bateria,
-    energiaAutonomiaKwh: energiaAutonomiaKwhExata,
-    eficiencia: EFICIENCIA_BATERIA_PADRAO
-  });
-  if (dimensionamento.erro) return dimensionamento;
-  return {
-    dados: {
-      capacidadeBateriaNecessariaKwh: dimensionamento.capacidadeNominalNecessariaKwh,
-      bateriaId: dimensionamento.bateria.id,
-      quantidadeBaterias: dimensionamento.quantidade,
-      capacidadeBateriaInstaladaKwh: dimensionamento.capacidadeInstaladaKwh,
-      custoBateriaBrl: custoBateria(true, dimensionamento.custoBrl)
-    },
-    logs: [logCapacidade, montarLogSelecaoBateria(dimensionamento, energiaAutonomiaKwhExata, EFICIENCIA_BATERIA_PADRAO)]
-  };
 }
 
 // GET /dimensionamento/hsp?uf=SP (sem uf: devolve a tabela completa)
@@ -439,32 +115,10 @@ async function criar(req, res) {
     return res.status(400).json({ message: hsp.erro });
   }
 
-  const armazenamento = resolverArmazenamento({
-    armazenamento: req.body.armazenamento,
-    autonomiaHoras: req.body.autonomiaHoras
-  });
-  if (armazenamento.erro) {
-    return res.status(400).json({ message: armazenamento.erro });
-  }
-
-  const dimensionamentoBateria = resolverDimensionamentoBateria({
-    consumoKwhMes: consumo.consumoKwhMes,
-    armazenamento: armazenamento.armazenamento,
-    autonomiaHoras: armazenamento.autonomiaHoras,
-    bateriaId: req.body.bateriaId
-  });
-  if (dimensionamentoBateria.erro) {
-    return res.status(400).json({ message: dimensionamentoBateria.erro });
-  }
-
   const energia = calcularEnergiaFv(consumo.consumoKwhMes, percentual.valor);
   if (energia.erro) {
     return res.status(400).json({ message: energia.erro });
   }
-  const orcamento = resolverOrcamento(req.body, energia.valor, hsp.hsp, armazenamento.armazenamento, req.body.bateriaId, {
-    custoBateriaBrl: dimensionamentoBateria.dados.custoBateriaBrl
-  });
-  if (orcamento.erro) return res.status(400).json({ message: orcamento.erro, alternativas: orcamento.alternativas || [] });
 
   const cenario = await prisma.cenarioDimensionamento.create({
     data: {
@@ -477,19 +131,14 @@ async function criar(req, res) {
       hspKwhM2Dia: hsp.hsp,
       hspOrigem: hsp.origem,
       hspFonte: hsp.fonte,
-      armazenamento: armazenamento.armazenamento,
-      autonomiaHoras: armazenamento.autonomiaHoras,
-      ...dimensionamentoBateria.dados,
-      ...orcamento.dados,
       energiaMensalFvKwh: energia.valor,
-      custoBateriaBrl: dimensionamentoBateria.dados.custoBateriaBrl,
       logs: {
-        create: [montarLogEnergiaFv(consumo.consumoKwhMes, percentual.valor, energia.valor), ...dimensionamentoBateria.logs, ...(orcamento.log ? [orcamento.log] : [])]
+        create: [montarLogEnergiaFv(consumo.consumoKwhMes, percentual.valor, energia.valor)]
       }
     }
   });
 
-  res.status(201).json(adicionarResultadosDeGeracao(cenario));
+  res.status(201).json(cenario);
 }
 
 async function buscarCenarioDoUsuario(imovelId, cenarioId, usuarioId) {
@@ -508,7 +157,7 @@ async function obter(req, res) {
   if (!cenario) {
     return res.status(404).json({ message: 'cenário não encontrado' });
   }
-  res.json(adicionarResultadosDeGeracao(cenario));
+  res.json(cenario);
 }
 
 // PUT /imoveis/:id/cenarios/:cenarioId — ajusta parâmetros e recalcula HSP/E_FV
@@ -565,35 +214,10 @@ async function atualizar(req, res) {
     hspDados = hsp;
   }
 
-  const armazenamento = resolverArmazenamento({
-    armazenamento: req.body.armazenamento ?? existente.armazenamento,
-    autonomiaHoras: req.body.autonomiaHoras ?? existente.autonomiaHoras
-  });
-  if (armazenamento.erro) {
-    return res.status(400).json({ message: armazenamento.erro });
-  }
-
-  const bateriaId = req.body.bateriaId ?? existente.bateriaId;
-  const dimensionamentoBateria = resolverDimensionamentoBateria({
-    consumoKwhMes,
-    armazenamento: armazenamento.armazenamento,
-    autonomiaHoras: armazenamento.autonomiaHoras,
-    bateriaId,
-    permitirSemSelecao: armazenamento.armazenamento && existente.bateriaId == null && req.body.bateriaId === undefined
-  });
-  if (dimensionamentoBateria.erro) {
-    return res.status(400).json({ message: dimensionamentoBateria.erro });
-  }
-
   const energia = calcularEnergiaFv(consumoKwhMes, percentualFinal);
   if (energia.erro) {
     return res.status(400).json({ message: energia.erro });
   }
-  const orcamento = resolverOrcamento(req.body, energia.valor, hspDados.hsp, armazenamento.armazenamento, bateriaId, {
-    ...existente,
-    custoBateriaBrl: dimensionamentoBateria.dados.custoBateriaBrl
-  });
-  if (orcamento.erro) return res.status(400).json({ message: orcamento.erro, alternativas: orcamento.alternativas || [] });
 
   const cenario = await prisma.cenarioDimensionamento.update({
     where: { id: existente.id },
@@ -606,17 +230,12 @@ async function atualizar(req, res) {
       hspKwhM2Dia: hspDados.hsp,
       hspOrigem: hspDados.origem,
       hspFonte: hspDados.fonte,
-      armazenamento: armazenamento.armazenamento,
-      autonomiaHoras: armazenamento.autonomiaHoras,
-      ...dimensionamentoBateria.dados,
-      ...orcamento.dados,
       energiaMensalFvKwh: energia.valor,
-      custoBateriaBrl: dimensionamentoBateria.dados.custoBateriaBrl,
-      logs: { create: [montarLogEnergiaFv(consumoKwhMes, percentualFinal, energia.valor), ...dimensionamentoBateria.logs, ...(orcamento.log ? [orcamento.log] : [])] }
+      logs: { create: [montarLogEnergiaFv(consumoKwhMes, percentualFinal, energia.valor)] }
     }
   });
 
-  res.json(adicionarResultadosDeGeracao(cenario));
+  res.json(cenario);
 }
 
 // GET /imoveis/:id/cenarios/:cenarioId/logs — evidências de cálculo
@@ -632,11 +251,4 @@ async function logs(req, res) {
   res.json(registros);
 }
 
-async function listarCenarios(req, res) {
-  const imovel = await buscarImovelDoUsuario(req.params.id, req.usuarioId);
-  if (!imovel) return res.status(404).json({ message: 'imóvel não encontrado' });
-  const cenarios = await prisma.cenarioDimensionamento.findMany({ where: { imovelId: imovel.id }, orderBy: { createdAt: 'desc' } });
-  res.json(cenarios.map(adicionarResultadosDeGeracao));
-}
-
-module.exports = { referencia, consultarHsp, consultarBaterias, consultarPaineis, consultarInversores, consultarInversoresCompativeis, criar, listarCenarios, obter, atualizar, logs };
+module.exports = { referencia, consultarHsp, criar, obter, atualizar, logs };

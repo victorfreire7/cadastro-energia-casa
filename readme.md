@@ -81,17 +81,6 @@ Mapeamento de cada item do Product Backlog (ver `Backlog Projeto SERS.docx` e `A
 | **PB08** | Alerta e Validação de Inconsistências (dados negativos/inválidos/vazios) | Backend: validação de email e senha mínima em `authController.js`; validação de potência/quantidade/horas em `imovelController.js` (`validarEletrodomesticos`). Frontend: limites `min`/`max` nos campos de `pages/ImovelForm.jsx` |
 | **PB09** | Proteção dos Dados (privacidade de acesso) | Backend: hash de senha com `bcrypt`, autenticação via JWT em `middlewares/auth.js`, verificação de propriedade do recurso (`usuarioId`) em todas as rotas de imóvel/consumo |
 
-### Sprint 3 final — PB06 a PB09
-
-Os códigos PB do backlog final da Sprint 3 são uma numeração própria e não substituem a tabela PB01–PB09 acima. Nesta Sprint, PB06–PB09 cobrem o dimensionamento dos módulos, compatibilidade do inversor, estimativa de geração e comparação entre geração e consumo.
-
-| PB Sprint 3 | Implementação |
-|---|---|
-| **PB06** | `services/paineis.js` seleciona o módulo do dataset, arredonda a quantidade para cima e calcula a potência instalada. |
-| **PB07** | `GET /dimensionamento/inversores/compativeis` filtra candidatos por potência, tensão máxima, faixa MPPT e corrente de entrada; a API repete a validação ao salvar. O cálculo assume os módulos em uma string série. O catálogo mantém potência, limites elétricos, MPPT, eficiência máxima, preço e fonte. |
-| **PB08** | `services/geracaoFotovoltaica.js` estima geração diária e mensal usando potência instalada, HSP e PR. |
-| **PB09** | A interface e a API apresentam geração/consumo, energia compensável limitada ao consumo e excedente estimado em separado. |
-
 ## Evolução Fotovoltaica → Implementação
 
 Segunda fase do backlog (`PBs_Sistema_Fotovoltaico_Tasks.pdf`, PB01–PB20). Os códigos abaixo são os do **novo** backlog fotovoltaico, não os PB01–PB09 da tabela anterior.
@@ -122,21 +111,29 @@ Testes unitários das regras: `cd backend && npm test`. Após puxar estas mudan�
 
 Atenção: os valores de `hsp_por_uf.csv` são médias anuais aproximadas por UF e devem ser conferidos no CRESESB SunData antes de entrega formal.
 
-### PB12–PB15 — autonomia e baterias
 
-- PB12 valida autonomia positiva de 1 a 72 horas quando o cenário usa armazenamento.
-- PB13 calcula `E_d = C_m / 30`, `E_autonomia = E_d × (A / 24)` e a capacidade nominal estimada com DoD padrão de 80% e eficiência de bateria padrão de 90%. Esses dois padrões são premissas ajustáveis do modelo do projeto; o DoD do equipamento selecionado vem do dataset.
-- PB14 usa `backend/data/baterias.csv`, com dados técnicos e preços consultados em 02/10/2026. Os links das fichas dos fabricantes e das listagens de preço acompanham cada registro.
-- PB15 aplica o DoD do modelo selecionado uma única vez: `N_bat = ceil((E_autonomia / η_bat) / (C_nominal × DoD))`. A API devolve capacidade instalada, custo estimado e memória de cálculo.
-- O catálogo é servido em `GET /dimensionamento/baterias`. Cenários com armazenamento exigem seleção para novos cadastros; cenários antigos sem bateria selecionada seguem consultáveis e podem ser completados ao atualizar.
-- Para aplicar os novos campos e regenerar o Prisma Client, execute `cd backend && npx prisma migrate dev`.
+## Sprint 3 — Dimensionamento completo → Implementação
 
-### PB16–PB20 — compatibilidade, orçamento e cenários
+Backlog: `Sprint_3_Product_Backlog_Final.pdf` (PB01–PB21). Os códigos abaixo são os do backlog da Sprint 3.
 
-- `backend/data/inversores.csv` identifica inversores híbridos e as baterias explicitamente suportadas. A combinação de bateria com inversor incompatível retorna erro e alternativas cadastradas. O conjunto documentado inclui Deye SUN-5K-SG04LP1-EU com Dyness B4850; confirme sempre a matriz de compatibilidade do fabricante antes de fechar a proposta.
-- `backend/data/paineis.csv` contém três módulos com dados técnicos e preços de varejo consultados em 02/10/2026. As fontes técnicas e de preço ficam no próprio CSV.
-- O dimensionamento de potência usa `P_FV = E_FV / (HSP × D × η)`, com `D = 30` dias e eficiência global `η = 75%` por padrão; ambos são editáveis no cenário (`D` entre 1 e 31 dias). O número de módulos é arredondado para cima. A potência instalada é comparada com a potência calculada; este cálculo preliminar não valida arranjos elétricos em série/paralelo.
-- O orçamento de equipamentos soma módulos, inversor e baterias. Estrutura, cabeamento, proteções e instalação são campos manuais, com padrão R$ 0,00; a tela permite registrar a fonte/premissa. O total geral soma equipamentos e esses itens.
-- `GET /dimensionamento/paineis` e `GET /dimensionamento/inversores` expõem os catálogos autenticados. `GET /imoveis/:id/cenarios` lista somente os cenários do imóvel pertencente ao usuário autenticado; os valores e logs ficam persistidos.
-- A migration `20261002140000_integracao_orcamento` adiciona dimensionamento e orçamento ao cenário. Rode `cd backend && npx prisma migrate dev` para aplicar e regenerar o Prisma Client.
+| PB | Task | Onde foi atingido |
+|---|---|---|
+| **PB14** | Comparar potência FV, módulos, inversor, geração, atendimento, armazenamento, autonomia e investimento | `backend/services/comparacao.js` (`compararCenarios`, `CRITERIOS`): tabela com valor sem baterias, com baterias, diferença absoluta e percentual |
+| | Apresentar os dois cenários de forma comparável | `POST /dimensionamento/comparacao` (`controllers/comparacaoController.js`) recebe `{ semBaterias, comBaterias }` e devolve `criterios`, `resumo` (investimento adicional, ganho de atendimento, custo por ponto percentual) e `avisos` |
+| | Validação (PB18) | `validarCenario`: campos ausentes, negativos, não numéricos, baterias no cenário sem baterias, divisão por zero tratada (`null`) |
+| **PB15** | Identificar a tarifa utilizada | `backend/services/economia.js` (`calcularEconomia`): a tarifa (R$/kWh) e a **fonte** são obrigatórias e devolvidas no resultado; nenhum valor fixo no código |
+| | Identificar a energia compensada | `energiaCompensadaKwhMes` = menor valor entre geração e consumo (ou valor informado); o excedente é mostrado à parte |
+| | Economia mensal e anual | `economiaMensal = E_compensada × tarifa`; `economiaAnual = mensal × 12`; `memoriaCalculo` com fórmula e entradas |
+| | Exibir as premissas | lista `premissas` (tarifa constante, sem crédito de excedente, sem degradação, estimativa e não previsão exata) |
+| | Rota | `POST /dimensionamento/economia` (`controllers/economiaController.js`); validação de tarifa, fonte, consumo, geração e compensada |
+| **PB16** | Apresentar como payback simples | `backend/services/payback.js` (`calcularPayback`): `tipo: "payback simples"` e descrição iniciada por "Payback simples" |
+| | Fórmula | `Payback = Investimento / Economia_anual`, em anos e meses (arredondados para cima), com `memoriaCalculo`; economia anual zero devolve `null` com explicação, sem divisão por zero |
+| | Não apresentar como previsão exata | lista `premissas` (sem juros, inflação, reajuste, degradação ou manutenção; "não é previsão financeira exata") e `avisos` para prazos acima de 25 anos |
+| | Rota | `POST /dimensionamento/payback` (`controllers/paybackController.js`); recebe `investimentoTotal` (PB13) e `economiaAnual` (PB15) |
+| **PB17** | Apresentar residência, consumo, HSP, potência necessária e instalada, módulos, inversor, geração, atendimento, baterias/autonomia, orçamento, economia e payback | `backend/services/proposta.js` (`montarProposta`): consolida tudo em um objeto; o orçamento é calculado (`Custo_item = quantidade × preço`, `Custo_total = Σ`) e a economia e o payback reaproveitam `economia.js` e `payback.js` |
+| | Relatório | `renderizarHtml`: página HTML com todas as seções, premissas e avisos (texto do usuário escapado); baterias/autonomia só aparecem quando há baterias |
+| | Rota | `POST /dimensionamento/proposta` (JSON) e `?formato=html` (relatório) em `controllers/propostaController.js`; valida HSP, PR (0 a 1, com justificativa), fonte da HSP, consumo e itens do orçamento |
 
+Testes: `cd backend && npm test` (`tests/comparacao.test.js`, `tests/economia.test.js`, `tests/payback.test.js`, `tests/proposta.test.js`).
+
+**Dependência:** a PB14 compara resultados calculados pelas PB04–PB13 (potência FV, módulos, inversor, geração, atendimento, baterias, orçamento). Esses cálculos ainda não existem no código; a rota de comparação recebe os dois resultados prontos e não fixa nenhum equipamento ou preço.
